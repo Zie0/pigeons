@@ -1,6 +1,6 @@
 
-systemctl stop iroh-ssh-server.service
-systemctl disable iroh-ssh-server.service
-rm /etc/systemd/system/iroh-ssh-server.service
-rm /usr/local/bin/iroh-ssh
+systemctl stop pigeons.service
+systemctl disable pigeons.service
+rm /etc/systemd/system/pigeons.service
+rm /usr/local/bin/pigeons
 systemctl daemon-reload

@@ -15,13 +15,13 @@ pub fn add_firewall_rules(executable_path: &Path) -> Result<()> {
 $ErrorActionPreference = 'Stop'
 
 # Remove old rules if they exist (ignore errors)
-Remove-NetFirewallRule -DisplayName 'iroh-ssh Service Outbound' -ErrorAction SilentlyContinue
-Remove-NetFirewallRule -DisplayName 'iroh-ssh Service Inbound' -ErrorAction SilentlyContinue
+Remove-NetFirewallRule -DisplayName 'pigeons Service Outbound' -ErrorAction SilentlyContinue
+Remove-NetFirewallRule -DisplayName 'pigeons Service Inbound' -ErrorAction SilentlyContinue
 
 # Add outbound UDP rule for relay connections and STUN
 New-NetFirewallRule `
-    -DisplayName 'iroh-ssh Service Outbound' `
-    -Description 'Allow outbound UDP for iroh-ssh QUIC, relay, and holepunching' `
+    -DisplayName 'pigeons Service Outbound' `
+    -Description 'Allow outbound UDP for pigeons QUIC, relay, and holepunching' `
     -Direction Outbound `
     -Action Allow `
     -Protocol UDP `
@@ -33,8 +33,8 @@ Write-Host 'Added outbound rule'
 
 # Add inbound UDP rule for accepting holepunched connections
 New-NetFirewallRule `
-    -DisplayName 'iroh-ssh Service Inbound' `
-    -Description 'Allow inbound UDP for iroh-ssh holepunching and direct connections' `
+    -DisplayName 'pigeons Service Inbound' `
+    -Description 'Allow inbound UDP for pigeons holepunching and direct connections' `
     -Direction Inbound `
     -Action Allow `
     -Protocol UDP `
@@ -46,8 +46,8 @@ Write-Host 'Added inbound rule'
 
 # Also add outbound TCP rule for HTTPS relay connections
 New-NetFirewallRule `
-    -DisplayName 'iroh-ssh Service HTTPS' `
-    -Description 'Allow outbound HTTPS for iroh-ssh relay server connections' `
+    -DisplayName 'pigeons Service HTTPS' `
+    -Description 'Allow outbound HTTPS for pigeons relay server connections' `
     -Direction Outbound `
     -Action Allow `
     -Protocol TCP `
@@ -89,18 +89,18 @@ Write-Host 'Added HTTPS rule'
 }
 
 pub fn remove_firewall_rules() -> Result<()> {
-    tracing::info!("Removing Windows Firewall rules for iroh-ssh");
+    tracing::info!("Removing Windows Firewall rules for pigeons");
 
     let ps_script = r#"
 $ErrorActionPreference = 'Stop'
 
-Remove-NetFirewallRule -DisplayName 'iroh-ssh Service Outbound' -ErrorAction Stop
+Remove-NetFirewallRule -DisplayName 'pigeons Service Outbound' -ErrorAction Stop
 Write-Host 'Removed outbound rule'
 
-Remove-NetFirewallRule -DisplayName 'iroh-ssh Service Inbound' -ErrorAction Stop
+Remove-NetFirewallRule -DisplayName 'pigeons Service Inbound' -ErrorAction Stop
 Write-Host 'Removed inbound rule'
 
-Remove-NetFirewallRule -DisplayName 'iroh-ssh Service HTTPS' -ErrorAction Stop
+Remove-NetFirewallRule -DisplayName 'pigeons Service HTTPS' -ErrorAction Stop
 Write-Host 'Removed HTTPS rule'
 "#;
 

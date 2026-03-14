@@ -3,11 +3,12 @@ use std::str::FromStr as _;
 use anyhow::bail;
 use homedir::my_home;
 use iroh::{EndpointId, RelayUrl, SecretKey};
+use tokio::net::TcpListener;
 
 use crate::{
-    IrohSsh,
-    cli::{ConnectArgs, ProxyArgs, ServerArgs},
-    dot_ssh,
+    IrohTunnel,
+    cli::{CarryArgs, HomeArgs},
+    dot_ssh, ssh_config,
 };
 
 fn parse_relay_urls(urls: &[String]) -> anyhow::Result<Vec<RelayUrl>> {
@@ -16,50 +17,45 @@ fn parse_relay_urls(urls: &[String]) -> anyhow::Result<Vec<RelayUrl>> {
         .collect()
 }
 
+fn parse_endpoint_id(key: &str) -> anyhow::Result<EndpointId> {
+    let id_str = if key.len() == 64 {
+        key
+    } else if key.len() > 64 {
+        &key[key.len() - 64..]
+    } else {
+        bail!(
+            "invalid endpoint id: expected 64 hex characters, got {}",
+            key.len()
+        );
+    };
+    EndpointId::from_str(id_str).map_err(|e| anyhow::anyhow!("invalid endpoint id: {e}"))
+}
+
 pub async fn info_mode() -> anyhow::Result<()> {
     let server_key = dot_ssh(&SecretKey::generate(&mut rand::rng()), false, false).ok();
     let service_key = dot_ssh(&SecretKey::generate(&mut rand::rng()), false, true).ok();
 
     if server_key.is_none() && service_key.is_none() {
-        println!(
-            "No keys found, run for server or service:\n  'iroh-ssh server --persist' or '-p' to create it"
-        );
-        println!();
-        println!("(if an iroh-ssh instance is currently running, it is using ephemeral keys)");
+        println!("No roost found. Run 'pigeons home --persist' to set one up.");
         bail!("No keys found")
     }
 
-    println!("iroh-ssh version {}", env!("CARGO_PKG_VERSION"));
-    println!("https://github.com/rustonbsd/iroh-ssh");
+    println!("pigeons v{}", env!("CARGO_PKG_VERSION"));
     println!();
 
-    if server_key.is_none() && service_key.is_none() {
-        println!("run 'iroh-ssh server --persist' to start the server with persistent keys");
-        println!("run 'iroh-ssh server' to start the server with ephemeral keys");
-        println!(
-            "run 'iroh-ssh service install' to copy the binary, install the service and start the server (always uses persistent keys)"
-        );
-    }
-
     if let Some(key) = server_key {
+        println!("Your roost ID (user keys):");
+        println!("  {}", key.public());
         println!();
-        println!("Your server iroh-ssh endpoint id:");
-        println!(
-            "  iroh-ssh {}@{}",
-            whoami::username().unwrap_or("UNKNOWN_USER".to_string()),
-            key.clone().public()
-        );
+        println!("  Send a pigeon with: pigeons carry {}", key.public());
         println!();
     }
 
     if let Some(key) = service_key {
+        println!("Your roost ID (service keys):");
+        println!("  {}", key.public());
         println!();
-        println!("Your service iroh-ssh endpoint id:");
-        println!(
-            "  iroh-ssh {}@{}",
-            whoami::username().unwrap_or("UNKNOWN_USER".to_string()),
-            key.clone().public()
-        );
+        println!("  Send a pigeon with: pigeons carry {}", key.public());
         println!();
     }
 
@@ -82,93 +78,184 @@ pub mod service {
         .await
         .is_err()
         {
-            anyhow::bail!("service install is only supported on linux and windows");
+            anyhow::bail!("coop installation is only supported on linux and windows");
         }
         Ok(())
     }
 
     pub async fn uninstall() -> anyhow::Result<()> {
         if uninstall_service().await.is_err() {
-            println!("service uninstall is only supported on linux or windows");
-            anyhow::bail!("service uninstall is only supported on linux or windows");
+            anyhow::bail!("coop removal is only supported on linux or windows");
         }
         Ok(())
     }
 }
 
-pub async fn server_mode(server_args: ServerArgs, service: bool) -> anyhow::Result<()> {
-    let mut iroh_ssh_builder = IrohSsh::builder()
+pub async fn home_mode(args: HomeArgs, service: bool) -> anyhow::Result<()> {
+    let mut builder = IrohTunnel::builder()
         .accept_incoming(true)
-        .accept_port(server_args.ssh_port)
-        .relay_urls(parse_relay_urls(&server_args.relay_url)?)
-        .extra_relay_urls(parse_relay_urls(&server_args.extra_relay_url)?);
-    if server_args.persist {
-        iroh_ssh_builder = iroh_ssh_builder.dot_ssh_integration(true, service);
+        .accept_port(args.ssh_port)
+        .relay_urls(parse_relay_urls(&args.relay_url)?)
+        .extra_relay_urls(parse_relay_urls(&args.extra_relay_url)?);
+    if args.persist {
+        builder = builder.dot_ssh_integration(true, service);
     }
-    let iroh_ssh = iroh_ssh_builder.build().await?;
+    let tunnel = builder.build().await?;
 
-    println!("Connect to this this machine:");
-    println!(
-        "\n  iroh-ssh {}@{}\n",
-        whoami::username().unwrap_or("UNKNOWN_USER".to_string()),
-        iroh_ssh.endpoint_id()
-    );
-    if server_args.persist {
+    println!("Roost is open for business.");
+    println!();
+    println!("  Roost ID: {}", tunnel.endpoint_id());
+    println!();
+    println!("  From another machine, send a pigeon:");
+    println!("    pigeons carry {}", tunnel.endpoint_id());
+    println!();
+    if args.persist {
         let distro_home = my_home()?.ok_or_else(|| anyhow::anyhow!("home directory not found"))?;
         let ssh_dir = distro_home.join(".ssh");
-        println!("  (using persistent keys in {})", ssh_dir.display());
+        println!(
+            "  Nest secured with persistent keys in {}",
+            ssh_dir.display()
+        );
     } else {
         println!(
-            "  warning: (using ephemeral keys, run 'iroh-ssh server --persist' to create persistent keys)"
+            "  Warning: using temporary nest. Run with --persist / -p so pigeons can find their way back."
         );
     }
     println!();
-    println!(
-        "client -> iroh-ssh -> direct connect -> iroh-ssh -> local ssh :{}",
-        server_args.ssh_port
-    );
+    println!("  Delivering to local sshd on port {}", args.ssh_port);
+    println!("  Awaiting pigeons... (Ctrl+C to close the roost)");
 
-    println!("Waiting for incoming connections...");
-    println!("Press Ctrl+C to exit");
     tokio::signal::ctrl_c().await?;
     Ok(())
 }
 
-pub async fn proxy_mode(proxy_args: ProxyArgs) -> anyhow::Result<()> {
-    let iroh_ssh = IrohSsh::builder()
+pub async fn carry_mode(args: CarryArgs) -> anyhow::Result<()> {
+    let endpoint_id = parse_endpoint_id(&args.public_key)?;
+
+    let tunnel_name = args.tunnel_name.unwrap_or_else(|| {
+        let key_str = format!("{}", endpoint_id);
+        format!("pigeon-{}", &key_str[..8.min(key_str.len())])
+    });
+
+    let tunnel = IrohTunnel::builder()
         .accept_incoming(false)
-        .relay_urls(parse_relay_urls(&proxy_args.relay_url)?)
-        .extra_relay_urls(parse_relay_urls(&proxy_args.extra_relay_url)?)
+        .relay_urls(parse_relay_urls(&args.relay_url)?)
+        .extra_relay_urls(parse_relay_urls(&args.extra_relay_url)?)
         .build()
         .await?;
-    let endpoint_id = EndpointId::from_str(if proxy_args.endpoint_id.len() == 64 {
-        &proxy_args.endpoint_id
-    } else if proxy_args.endpoint_id.len() > 64 {
-        &proxy_args.endpoint_id[proxy_args.endpoint_id.len() - 64..]
-    } else {
-        return Err(anyhow::anyhow!("invalid endpoint id length"));
-    })?;
-    iroh_ssh.connect(endpoint_id).await
+
+    let bind_addr = format!("127.0.0.1:{}", args.bind_port.unwrap_or(0));
+    let listener = TcpListener::bind(&bind_addr).await?;
+    let local_port = listener.local_addr()?.port();
+
+    let manage_ssh_config = !args.no_ssh_config;
+    if manage_ssh_config {
+        ssh_config::add_tunnel_host(&tunnel_name, local_port)?;
+        println!("Trained pigeon route '{tunnel_name}' in ~/.ssh/config");
+    }
+
+    println!();
+    println!(
+        "Pigeon '{}' perched on 127.0.0.1:{}",
+        tunnel_name, local_port
+    );
+    println!();
+    println!("  Fly with: ssh <user>@{tunnel_name}");
+    println!();
+    println!("  Waiting for messages to carry... (Ctrl+C to recall)");
+
+    let result = accept_loop(&tunnel, &listener, endpoint_id).await;
+
+    if manage_ssh_config {
+        if let Err(e) = ssh_config::remove_tunnel_host(&tunnel_name) {
+            eprintln!("Warning: couldn't clean up pigeon route: {e}");
+        } else {
+            println!("Pigeon '{}' returned to the coop.", tunnel_name);
+        }
+    }
+
+    result
 }
 
-pub async fn client_mode(connect_args: ConnectArgs) -> anyhow::Result<()> {
-    let iroh_ssh = IrohSsh::builder()
-        .accept_incoming(false)
-        .relay_urls(parse_relay_urls(&connect_args.relay_url)?)
-        .extra_relay_urls(parse_relay_urls(&connect_args.extra_relay_url)?)
-        .build()
-        .await?;
-    let mut ssh_process = iroh_ssh
-        .start_ssh(
-            connect_args.target,
-            connect_args.ssh,
-            connect_args.remote_cmd,
-            &connect_args.relay_url,
-            &connect_args.extra_relay_url,
-        )
-        .await?;
+async fn accept_loop(
+    tunnel: &IrohTunnel,
+    listener: &TcpListener,
+    endpoint_id: EndpointId,
+) -> anyhow::Result<()> {
+    let endpoint = tunnel.endpoint().clone();
 
-    ssh_process.wait().await?;
+    loop {
+        tokio::select! {
+            accept_result = listener.accept() => {
+                match accept_result {
+                    Ok((tcp_stream, peer_addr)) => {
+                        println!("Pigeon departing from {peer_addr}");
+                        let endpoint = endpoint.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = bridge_connection(tcp_stream, &endpoint, endpoint_id).await {
+                                eprintln!("Pigeon lost in transit: {e}");
+                            }
+                        });
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to accept connection: {e}");
+                    }
+                }
+            }
+            _ = tokio::signal::ctrl_c() => {
+                println!("\nRecalling all pigeons...");
+                break;
+            }
+        }
+    }
 
+    Ok(())
+}
+
+async fn bridge_connection(
+    mut tcp_stream: tokio::net::TcpStream,
+    endpoint: &iroh::Endpoint,
+    endpoint_id: EndpointId,
+) -> anyhow::Result<()> {
+    let conn = endpoint.connect(endpoint_id, IrohTunnel::ALPN).await?;
+    let (mut iroh_send, mut iroh_recv) = conn.open_bi().await?;
+    let (mut tcp_read, mut tcp_write) = tcp_stream.split();
+
+    let tcp_to_iroh = async { tokio::io::copy(&mut tcp_read, &mut iroh_send).await };
+    let iroh_to_tcp = async { tokio::io::copy(&mut iroh_recv, &mut tcp_write).await };
+
+    tokio::select! {
+        result = tcp_to_iroh => {
+            let _ = result;
+        }
+        result = iroh_to_tcp => {
+            let _ = result;
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn list_mode() -> anyhow::Result<()> {
+    let entries = ssh_config::list_tunnel_hosts()?;
+
+    if entries.is_empty() {
+        println!("No pigeons in flight.");
+        return Ok(());
+    }
+
+    println!("Active pigeon routes:");
+    println!();
+    for entry in &entries {
+        println!("  {:<20} -> 127.0.0.1:{}", entry.name, entry.port);
+    }
+    println!();
+
+    Ok(())
+}
+
+pub async fn remove_mode(tunnel_name: &str) -> anyhow::Result<()> {
+    ssh_config::remove_tunnel_host(tunnel_name)?;
+    println!("Pigeon route '{tunnel_name}' removed. That pigeon is free now.");
     Ok(())
 }

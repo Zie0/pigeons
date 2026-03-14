@@ -1,6 +1,7 @@
 mod cli;
 mod service;
-mod ssh;
+pub mod ssh_config;
+mod tunnel;
 
 use ed25519_dalek::{PUBLIC_KEY_LENGTH, SECRET_KEY_LENGTH};
 use iroh::{Endpoint, RelayUrl, protocol::Router};
@@ -11,10 +12,10 @@ pub use cli::*;
 pub use service::Service;
 pub use service::ServiceParams;
 pub use service::{install_service, run_service, uninstall_service};
-pub use ssh::dot_ssh;
+pub use tunnel::dot_ssh;
 
 #[derive(Debug, Clone)]
-pub struct IrohSsh {
+pub struct IrohTunnel {
     #[allow(dead_code)]
     pub(crate) secret_key: [u8; SECRET_KEY_LENGTH],
     #[allow(dead_code)]

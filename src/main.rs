@@ -1,58 +1,42 @@
 use clap::Parser;
-use iroh_ssh::{Cli, Cmd, ConnectArgs, ServiceCmd, api};
-
-#[cfg(not(target_os = "windows"))]
-use anyhow::bail;
+use pigeons::{Cli, Cmd, ServiceCmd, api};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.cmd {
-        Some(Cmd::Connect(args)) => api::client_mode(args).await,
-        Some(Cmd::Exec(args)) => {
-            let conn_args = ConnectArgs {
-                ssh: args.ssh,
-                remote_cmd: args.remote_cmd,
-                target: args.target,
-                relay_url: args.relay_url,
-                extra_relay_url: args.extra_relay_url,
-            };
-            api::client_mode(conn_args).await
-        }
-        Some(Cmd::Server(args)) => api::server_mode(args, false).await,
-        Some(Cmd::Service { op }) => {
+        Cmd::Home(args) => api::home_mode(args, false).await,
+        Cmd::Carry(args) => api::carry_mode(args).await,
+        Cmd::List => api::list_mode().await,
+        Cmd::Remove(args) => api::remove_mode(&args.tunnel_name).await,
+        Cmd::Service { op } => {
             if !self_runas::is_elevated() {
                 self_runas::admin()?;
-                return Ok(())
+                return Ok(());
             } else {
                 match op {
-                    ServiceCmd::Install { ssh_port, relay_url, extra_relay_url } => api::service::install(ssh_port, relay_url, extra_relay_url).await,
+                    ServiceCmd::Install {
+                        ssh_port,
+                        relay_url,
+                        extra_relay_url,
+                    } => api::service::install(ssh_port, relay_url, extra_relay_url).await,
                     ServiceCmd::Uninstall => api::service::uninstall().await,
                 }
             }
         }
-        Some(Cmd::Info) => api::info_mode().await,
-        Some(Cmd::Version) => {
-            println!("iroh-ssh version {}", env!("CARGO_PKG_VERSION"));
+        Cmd::Info => api::info_mode().await,
+        Cmd::Version => {
+            println!("pigeons v{}", env!("CARGO_PKG_VERSION"));
             Ok(())
-        },
-        Some(Cmd::Proxy(args)) => api::proxy_mode(args).await,
-        #[cfg(target_os = "windows")]
-        Some(Cmd::RunService(args)) => iroh_ssh::run_service(args.ssh_port, args.relay_url, args.extra_relay_url).await,
-        #[cfg(not(target_os = "windows"))]
-        Some(Cmd::RunService(_)) => {
-            bail!("service runtime is only available on windows");
         }
-        None => {
-            let conn_args = ConnectArgs {
-                ssh: cli.ssh,
-                remote_cmd: cli.remote_cmd.unwrap_or_default(),
-                target: cli.target.unwrap_or_default(),
-                relay_url: cli.relay_url,
-                extra_relay_url: cli.extra_relay_url,
-            };
-            api::client_mode(conn_args).await
+        #[cfg(target_os = "windows")]
+        Cmd::RunService(args) => {
+            pigeons::run_service(args.ssh_port, args.relay_url, args.extra_relay_url).await
+        }
+        #[cfg(not(target_os = "windows"))]
+        Cmd::RunService(_) => {
+            anyhow::bail!("service runtime is only available on windows");
         }
     }
 }

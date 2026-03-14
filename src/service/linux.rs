@@ -53,7 +53,7 @@ impl LinuxService {
         }
 
         let mut temp_sh = tempfile::Builder::new()
-            .prefix("iroh_ssh_install-")
+            .prefix("pigeons_install-")
             .suffix(".sh")
             .tempfile_in("/tmp")?;
         temp_sh.write_all(
@@ -78,7 +78,7 @@ impl LinuxService {
         use std::io::Write as _;
 
         let mut temp_sh = tempfile::Builder::new()
-            .prefix("iroh_ssh_uninstall-")
+            .prefix("pigeons_uninstall-")
             .suffix(".sh")
             .tempfile_in("/tmp")?;
         temp_sh.write_all(LinuxService::UNINSTALL_SH_BYTES.as_bytes())?;

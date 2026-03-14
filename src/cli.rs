@@ -1,163 +1,48 @@
-use std::{ffi::OsString, path::PathBuf};
-
 use clap::{ArgAction, Args, Parser, Subcommand};
 
-const TARGET_HELP: &str = "Target in the form user@ENDPOINT_ID";
 const RELAY_URL_HELP: &str = "Use only these relay servers, replacing the defaults (repeatable)";
 const EXTRA_RELAY_URL_HELP: &str = "Add relay servers alongside the defaults (repeatable)";
 
 #[derive(Parser, Debug)]
-#[command(name = "iroh-ssh", about = "ssh without ip")]
+#[command(
+    name = "pigeons",
+    about = "carrier pigeons for your SSH connections. no IP addresses, no problem."
+)]
 pub struct Cli {
     #[command(subcommand)]
-    pub cmd: Option<Cmd>,
-
-    #[arg(help = TARGET_HELP)]
-    pub target: Option<String>,
-
-    #[arg(long, value_name = "URL", help = RELAY_URL_HELP, action = ArgAction::Append)]
-    pub relay_url: Vec<String>,
-
-    #[arg(long, value_name = "URL", help = EXTRA_RELAY_URL_HELP, action = ArgAction::Append)]
-    pub extra_relay_url: Vec<String>,
-
-    #[command(flatten)]
-    pub ssh: SshOpts,
-
-    #[arg(trailing_var_arg = true)]
-    pub remote_cmd: Option<Vec<OsString>>,
+    pub cmd: Cmd,
 }
 
-#[derive(Subcommand,Debug)]
+#[derive(Subcommand, Debug)]
 pub enum Cmd {
-    Connect(ConnectArgs),
-    #[command(hide = true)]
-    Exec(ExecArgs),
-    Server(ServerArgs),
+    /// Set up a roost. Accepts incoming pigeons and delivers them to your local sshd
+    Home(HomeArgs),
+    /// Send a pigeon to a remote roost, opening a local tunnel for SSH
+    Carry(CarryArgs),
+    /// See what pigeons are currently in flight
+    List,
+    /// Shoo away a pigeon (remove a tunnel entry from ~/.ssh/config)
+    Remove(RemoveArgs),
+    /// Coop management: install or uninstall pigeons as a system service
     Service {
         #[command(subcommand)]
         op: ServiceCmd,
     },
+    /// Show the identity of your local roost
     Info,
-    #[command(hide = true)]
-    Proxy(ProxyArgs),
+    /// Coo the version number
+    Version,
     #[command(hide = true)]
     RunService(ServiceArgs),
-    Version,
 }
 
 #[derive(Args, Clone, Debug)]
-pub struct ProxyArgs {
-    #[arg(help = "Proxy Endpoint ID")]
-    pub endpoint_id: String,
-
-    #[arg(long, value_name = "URL", help = RELAY_URL_HELP, action = ArgAction::Append)]
-    pub relay_url: Vec<String>,
-
-    #[arg(long, value_name = "URL", help = EXTRA_RELAY_URL_HELP, action = ArgAction::Append)]
-    pub extra_relay_url: Vec<String>,
-}
-
-#[derive(Args, Clone, Debug)]
-pub struct ConnectArgs {
-    #[arg(help = TARGET_HELP)]
-    pub target: String,
-
-    #[arg(long, value_name = "URL", help = RELAY_URL_HELP, action = ArgAction::Append)]
-    pub relay_url: Vec<String>,
-
-    #[arg(long, value_name = "URL", help = EXTRA_RELAY_URL_HELP, action = ArgAction::Append)]
-    pub extra_relay_url: Vec<String>,
-
-    #[command(flatten)]
-    pub ssh: SshOpts,
-
-    #[arg(trailing_var_arg = true)]
-    pub remote_cmd: Vec<OsString>,
-}
-
-#[derive(Args, Clone, Debug)]
-pub struct ExecArgs {
-    #[arg(help = TARGET_HELP)]
-    pub target: String,
-
-    #[arg(long, value_name = "URL", help = RELAY_URL_HELP, action = ArgAction::Append)]
-    pub relay_url: Vec<String>,
-
-    #[arg(long, value_name = "URL", help = EXTRA_RELAY_URL_HELP, action = ArgAction::Append)]
-    pub extra_relay_url: Vec<String>,
-
-    #[command(flatten)]
-    pub ssh: SshOpts,
-
-    #[arg(trailing_var_arg = true, required = true)]
-    pub remote_cmd: Vec<OsString>,
-}
-
-#[derive(Args, Clone, Default, Debug)]
-pub struct SshOpts {
-    #[arg(
-        short = 'i',
-        long,
-        value_name = "PATH",
-        help = "Identity file for publickey auth"
-    )]
-    pub identity_file: Option<PathBuf>,
-
-    #[arg(short = 'L', value_name = "LPORT:HOST:RPORT",
-        help = "Local forward [bind_addr:]lport:host:rport (host can't be endpoint_id yet)", action = ArgAction::Append)]
-    pub local_forward: Vec<String>,
-
-    #[arg(short = 'R', value_name = "RPORT:HOST:LPORT",
-        help = "Remote forward [bind_addr:]rport:host:lport  (host can't be endpoint_id yet)", action = ArgAction::Append)]
-    pub remote_forward: Vec<String>,
-
-    #[arg(
-        short = 'p',
-        long,
-        value_name = "PORT",
-        help = "Remote sshd port (default 22)"
-    )]
-    pub port: Option<u16>,
-
-    #[arg(short = 'o', value_name = "KEY=VALUE",
-        help = "Pass an ssh option (repeatable)", action = ArgAction::Append)]
-    pub options: Vec<String>,
-
-    #[arg(short = 'A', help = "Enable agent forwarding", action = ArgAction::SetTrue)]
-    pub agent: bool,
-
-    #[arg(short = 'a', help = "Disable agent forwarding", action = ArgAction::SetTrue)]
-    pub no_agent: bool,
-
-    #[arg(short = 'X', help = "Enable X11 forwarding", action = ArgAction::SetTrue)]
-    pub x11: bool,
-
-    #[arg(short = 'Y', help = "Enable trusted X11 forwarding", action = ArgAction::SetTrue)]
-    pub x11_trusted: bool,
-
-    #[arg(short = 'N', help = "Do not execute remote command", action = ArgAction::SetTrue)]
-    pub no_cmd: bool,
-
-    #[arg(short = 't', help = "Force pseudo-terminal", action = ArgAction::SetTrue)]
-    pub force_tty: bool,
-
-    #[arg(short = 'T', help = "Disable pseudo-terminal", action = ArgAction::SetTrue)]
-    pub no_tty: bool,
-
-    #[arg(short = 'v', help = "Increase verbosity",
-        action = ArgAction::Count)]
-    pub verbose: u8,
-
-    #[arg(short = 'q', help = "Quiet mode", action = ArgAction::SetTrue)]
-    pub quiet: bool,
-}
-
-#[derive(Args, Clone, Debug)]
-pub struct ServerArgs {
+pub struct HomeArgs {
+    /// Which port your local sshd is nesting on
     #[arg(long, default_value = "22")]
     pub ssh_port: u16,
 
+    /// Remember this roost's identity across restarts
     #[arg(short, long, default_value_t = false)]
     pub persist: bool,
 
@@ -168,8 +53,41 @@ pub struct ServerArgs {
     pub extra_relay_url: Vec<String>,
 }
 
+#[derive(Args, Clone, Debug)]
+pub struct CarryArgs {
+    /// The public key of the remote roost to fly to
+    #[arg()]
+    pub public_key: String,
+
+    /// A friendly name for this pigeon route (used as SSH Host name). Defaults to pigeon-<first8chars>
+    #[arg()]
+    pub tunnel_name: Option<String>,
+
+    /// Local port to perch on (default: whichever is available)
+    #[arg(long)]
+    pub bind_port: Option<u16>,
+
+    /// Don't touch ~/.ssh/config (the pigeon prefers to freelance)
+    #[arg(long, default_value_t = false)]
+    pub no_ssh_config: bool,
+
+    #[arg(long, value_name = "URL", help = RELAY_URL_HELP, action = ArgAction::Append)]
+    pub relay_url: Vec<String>,
+
+    #[arg(long, value_name = "URL", help = EXTRA_RELAY_URL_HELP, action = ArgAction::Append)]
+    pub extra_relay_url: Vec<String>,
+}
+
+#[derive(Args, Clone, Debug)]
+pub struct RemoveArgs {
+    /// The name of the pigeon route to remove
+    #[arg()]
+    pub tunnel_name: String,
+}
+
 #[derive(Subcommand, Clone, Debug)]
 pub enum ServiceCmd {
+    /// Build a permanent coop (install as system service)
     Install {
         #[arg(long, default_value = "22")]
         ssh_port: u16,
@@ -180,6 +98,7 @@ pub enum ServiceCmd {
         #[arg(long, value_name = "URL", help = EXTRA_RELAY_URL_HELP, action = ArgAction::Append)]
         extra_relay_url: Vec<String>,
     },
+    /// Tear down the coop (uninstall system service)
     Uninstall,
 }
 

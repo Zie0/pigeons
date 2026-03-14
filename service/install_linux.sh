@@ -1,22 +1,22 @@
 echo "[Unit]
-Description=SSH over Iroh
+Description=pigeons
 
 [Service]
 Type=simple
 WorkingDirectory=~
-ExecStart=/bin/bash -c 'iroh-ssh server -p --ssh-port [SSHPORT][RELAYARGS]'
+ExecStart=/bin/bash -c 'pigeons home -p --ssh-port [SSHPORT][RELAYARGS]'
 Restart=on-failure
 RestartSec=3s
 
 [Install]
-WantedBy=multi-user.target" > /etc/systemd/system/iroh-ssh-server.service
+WantedBy=multi-user.target" > /etc/systemd/system/pigeons.service
 
-cp [BINARYPATH] /usr/local/bin/iroh-ssh
+cp [BINARYPATH] /usr/local/bin/pigeons
 
-systemctl is-active iroh-ssh-server.service
+systemctl is-active pigeons.service
 if [ $? -eq 0 ]; then
     exit 0
 else
-    systemctl enable iroh-ssh-server.service
-    systemctl start iroh-ssh-server.service
+    systemctl enable pigeons.service
+    systemctl start pigeons.service
 fi

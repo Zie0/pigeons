@@ -126,15 +126,15 @@ impl WindowsService {
         SERVICE_EXTRA_RELAY_URLS.get().cloned().unwrap_or_default()
     }
 
-    pub const SERVICE_NAME: &'static str = "iroh-ssh";
-    pub const SERVICE_DISPLAY_NAME: &'static str = "iroh-ssh";
-    pub const SERVICE_DESCRIPTION: &'static str = "SSH to any machine without ip";
-    pub const SERVICE_ACCOUNT: &'static str = "NT SERVICE\\iroh-ssh";
+    pub const SERVICE_NAME: &'static str = "pigeons";
+    pub const SERVICE_DISPLAY_NAME: &'static str = "pigeons";
+    pub const SERVICE_DESCRIPTION: &'static str = "carrier pigeons for your SSH connections";
+    pub const SERVICE_ACCOUNT: &'static str = "NT SERVICE\\pigeons";
     pub const SERVICE_DEPENDENCY: &'static str = "sshd";
-    pub const INSTALL_ROOT: &'static str = r"C:\\ProgramData\\iroh-ssh";
-    pub const SERVICE_BINARY_NAME: &'static str = "iroh-ssh.exe";
-    pub const SERVICE_PROFILE_ROOT: &'static str = r"C:\\Windows\\ServiceProfiles\\iroh-ssh";
-    pub const SERVICE_SSH_DIR: &'static str = r"C:\\Windows\\ServiceProfiles\\iroh-ssh\\.ssh";
+    pub const INSTALL_ROOT: &'static str = r"C:\\ProgramData\\pigeons";
+    pub const SERVICE_BINARY_NAME: &'static str = "pigeons.exe";
+    pub const SERVICE_PROFILE_ROOT: &'static str = r"C:\\Windows\\ServiceProfiles\\pigeons";
+    pub const SERVICE_SSH_DIR: &'static str = r"C:\\Windows\\ServiceProfiles\\pigeons\\.ssh";
 
     fn install_blocking(service_params: ServiceParams) -> anyhow::Result<()> {
         let staged_binary = Self::stage_binary().context("failed to stage service binary")?;
@@ -524,7 +524,7 @@ impl WindowsService {
 #[cfg(target_os = "windows")]
 mod service_runtime {
     use super::WindowsService;
-    use crate::ServerArgs;
+    use crate::HomeArgs;
     use std::{ffi::OsString, io, sync::mpsc, time::Duration};
     use tokio::runtime::Builder;
     use windows_service::{
@@ -547,7 +547,7 @@ mod service_runtime {
 
     fn service_main(_arguments: Vec<OsString>) {
         let log_dir = std::path::PathBuf::from(WindowsService::SERVICE_PROFILE_ROOT);
-        let file_appender = tracing_appender::rolling::never(&log_dir, "iroh-ssh-service.log");
+        let file_appender = tracing_appender::rolling::never(&log_dir, "pigeons-service.log");
         let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
         tracing_subscriber::fmt()
@@ -555,10 +555,10 @@ mod service_runtime {
             .with_ansi(false)
             .init();
 
-        tracing::info!("=== iroh-ssh service starting ===");
+        tracing::info!("=== pigeons service starting ===");
 
         if let Err(error) = run_service_worker() {
-            tracing::error!("iroh-ssh service failed: {error:?}");
+            tracing::error!("pigeons service failed: {error:?}");
         }
     }
 
@@ -608,8 +608,8 @@ mod service_runtime {
         let server_handle = runtime.spawn(async move {
             tracing::info!("Spawning server_mode task");
 
-            let result = crate::api::server_mode(
-                ServerArgs {
+            let result = crate::api::home_mode(
+                HomeArgs {
                     ssh_port,
                     persist: true,
                     relay_url,
@@ -620,7 +620,7 @@ mod service_runtime {
             .await;
 
             if let Err(err) = result {
-                tracing::error!("iroh-ssh server task failed: {err:?}");
+                tracing::error!("pigeons home task failed: {err:?}");
             }
         });
 
