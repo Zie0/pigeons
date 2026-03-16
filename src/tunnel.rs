@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use iroh::{
     Endpoint, EndpointId, RelayConfig, RelayUrl, SecretKey,
-    endpoint::{Connection, RelayMode},
+    endpoint::{Connection, RelayMode, presets},
     protocol::{ProtocolHandler, Router},
 };
 use tokio::net::TcpStream;
@@ -74,7 +74,7 @@ impl Builder {
 
     pub async fn build(&mut self) -> anyhow::Result<IrohTunnel> {
         let secret_key = SecretKey::from_bytes(&self.secret_key);
-        let mut builder = Endpoint::builder().secret_key(secret_key);
+        let mut builder = Endpoint::builder(presets::N0).secret_key(secret_key);
 
         if !self.relay_urls.is_empty() {
             let relay_map = self.relay_urls.iter().cloned().collect();
@@ -137,7 +137,7 @@ impl IrohTunnel {
 
 impl ProtocolHandler for IrohTunnel {
     async fn accept(&self, connection: Connection) -> Result<(), iroh::protocol::AcceptError> {
-        let endpoint_id = connection.remote_id()?;
+        let endpoint_id = connection.remote_id();
 
         match connection.accept_bi().await {
             Ok((mut iroh_send, mut iroh_recv)) => {
