@@ -199,6 +199,11 @@ pub fn dot_ssh(
         ssh_dir = std::path::PathBuf::from("/root/.ssh");
     }
 
+    #[cfg(target_os = "macos")]
+    if _service {
+        ssh_dir = std::path::PathBuf::from("/var/root/.ssh");
+    }
+
     #[cfg(target_os = "windows")]
     if _service {
         ssh_dir = std::path::PathBuf::from(crate::service::WindowsService::SERVICE_SSH_DIR);

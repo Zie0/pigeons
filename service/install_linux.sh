@@ -1,3 +1,9 @@
+if ! /usr/bin/nc -z 127.0.0.1 [SSHPORT] 2>/dev/null && ! nc -z 127.0.0.1 [SSHPORT] 2>/dev/null; then
+    echo "Warning: no sshd detected on port [SSHPORT]. Pigeons won't be able to deliver connections."
+    echo "  Make sure sshd is running before sending pigeons to this roost."
+    echo ""
+fi
+
 echo "[Unit]
 Description=pigeons
 

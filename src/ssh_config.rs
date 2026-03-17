@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use anyhow::{Context, bail};
 use homedir::my_home;
 
-const BEGIN_MARKER: &str = "# pigeons:begin:";
-const END_MARKER: &str = "# pigeons:end:";
+const BEGIN_MARKER: &str = "# <pigeons>";
+const END_MARKER: &str = "# </pigeons>";
 
 #[derive(Debug, Clone)]
 pub struct TunnelEntry {

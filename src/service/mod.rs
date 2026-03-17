@@ -3,6 +3,11 @@ mod linux;
 #[cfg(target_os = "linux")]
 use crate::service::linux::LinuxService;
 
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(target_os = "macos")]
+use crate::service::macos::MacosService;
+
 #[cfg(target_os = "windows")]
 mod windows;
 #[cfg(target_os = "windows")]
@@ -50,9 +55,11 @@ pub async fn install_service(_service_params: ServiceParams) -> anyhow::Result<(
     match std::env::consts::OS {
         #[cfg(target_os = "linux")]
         "linux" => LinuxService::install(_service_params).await,
+        #[cfg(target_os = "macos")]
+        "macos" => MacosService::install(_service_params).await,
         #[cfg(target_os = "windows")]
         "windows" => WindowsService::install(_service_params).await,
-        _ => anyhow::bail!("service mode is only supported on linux and windows"),
+        _ => anyhow::bail!("service mode is only supported on linux, macos, and windows"),
     }
 }
 
@@ -60,8 +67,10 @@ pub async fn uninstall_service() -> anyhow::Result<()> {
     match std::env::consts::OS {
         #[cfg(target_os = "linux")]
         "linux" => LinuxService::uninstall().await,
+        #[cfg(target_os = "macos")]
+        "macos" => MacosService::uninstall().await,
         #[cfg(target_os = "windows")]
         "windows" => WindowsService::uninstall().await,
-        _ => anyhow::bail!("service mode is only supported on linux and windows"),
+        _ => anyhow::bail!("service mode is only supported on linux, macos, and windows"),
     }
 }

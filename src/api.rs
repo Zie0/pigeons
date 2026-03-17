@@ -3,7 +3,7 @@ use std::str::FromStr as _;
 use anyhow::bail;
 use homedir::my_home;
 use iroh::{EndpointId, RelayUrl, SecretKey};
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpStream};
 
 use crate::{
     IrohTunnel,
@@ -78,20 +78,32 @@ pub mod service {
         .await
         .is_err()
         {
-            anyhow::bail!("coop installation is only supported on linux and windows");
+            anyhow::bail!("coop installation is only supported on linux, macos, and windows");
         }
         Ok(())
     }
 
     pub async fn uninstall() -> anyhow::Result<()> {
         if uninstall_service().await.is_err() {
-            anyhow::bail!("coop removal is only supported on linux or windows");
+            anyhow::bail!("coop removal is only supported on linux, macos, or windows");
         }
         Ok(())
     }
 }
 
 pub async fn home_mode(args: HomeArgs, service: bool) -> anyhow::Result<()> {
+    match TcpStream::connect(format!("127.0.0.1:{}", args.ssh_port)).await {
+        Ok(_) => {}
+        Err(_) => {
+            eprintln!(
+                "Warning: no sshd detected on port {}. Pigeons won't be able to deliver connections.",
+                args.ssh_port
+            );
+            eprintln!("  Make sure sshd is running before sending pigeons to this roost.");
+            eprintln!();
+        }
+    }
+
     let mut builder = IrohTunnel::builder()
         .accept_incoming(true)
         .accept_port(args.ssh_port)
