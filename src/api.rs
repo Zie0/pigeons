@@ -62,8 +62,20 @@ pub async fn info_mode() -> anyhow::Result<()> {
     Ok(())
 }
 
+pub fn print_roost_info(endpoint_id: impl std::fmt::Display, ssh_port: u16) {
+    println!("Roost is open for business.");
+    println!();
+    println!("  Roost ID: {}", endpoint_id);
+    println!();
+    println!("  From another machine, send a pigeon:");
+    println!("    pigeons carry {}", endpoint_id);
+    println!();
+    println!("  Delivering to local sshd on port {}", ssh_port);
+}
+
 pub mod service {
-    use crate::{ServiceParams, install_service, uninstall_service};
+    use crate::{ServiceParams, dot_ssh, install_service, uninstall_service};
+    use iroh::SecretKey;
 
     pub async fn install(
         ssh_port: u16,
@@ -80,6 +92,20 @@ pub mod service {
         {
             anyhow::bail!("coop installation is only supported on linux, macos, and windows");
         }
+
+        // Give the daemon a moment to start and generate keys
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+        match dot_ssh(&SecretKey::generate(&mut rand::rng()), false, true) {
+            Ok(key) => {
+                println!();
+                super::print_roost_info(key.public(), ssh_port);
+            }
+            Err(_) => {
+                println!("Service installed. Run 'pigeons info' to see your roost ID.");
+            }
+        }
+
         Ok(())
     }
 
@@ -114,13 +140,7 @@ pub async fn home_mode(args: HomeArgs, service: bool) -> anyhow::Result<()> {
     }
     let tunnel = builder.build().await?;
 
-    println!("Roost is open for business.");
-    println!();
-    println!("  Roost ID: {}", tunnel.endpoint_id());
-    println!();
-    println!("  From another machine, send a pigeon:");
-    println!("    pigeons carry {}", tunnel.endpoint_id());
-    println!();
+    print_roost_info(tunnel.endpoint_id(), args.ssh_port);
     if args.persist {
         let distro_home = my_home()?.ok_or_else(|| anyhow::anyhow!("home directory not found"))?;
         let ssh_dir = distro_home.join(".ssh");
@@ -134,7 +154,6 @@ pub async fn home_mode(args: HomeArgs, service: bool) -> anyhow::Result<()> {
         );
     }
     println!();
-    println!("  Delivering to local sshd on port {}", args.ssh_port);
     println!("  Awaiting pigeons... (Ctrl+C to close the roost)");
 
     tokio::signal::ctrl_c().await?;

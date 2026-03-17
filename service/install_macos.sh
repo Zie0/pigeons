@@ -4,7 +4,7 @@ if ! /usr/bin/nc -z 127.0.0.1 [SSHPORT] 2>/dev/null; then
     echo ""
 fi
 
-PLIST_PATH="/Library/LaunchDaemons/com.pigeons.daemon.plist"
+PLIST_PATH="/Library/LaunchDaemons/computer.pigeons.daemon.plist"
 
 cat > "$PLIST_PATH" <<'PLIST_EOF'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -12,7 +12,7 @@ cat > "$PLIST_PATH" <<'PLIST_EOF'
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.pigeons.daemon</string>
+    <string>computer.pigeons.daemon</string>
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
@@ -36,11 +36,15 @@ cat > "$PLIST_PATH" <<'PLIST_EOF'
 </plist>
 PLIST_EOF
 
-cp [BINARYPATH] /usr/local/bin/pigeons
-
-launchctl list | grep -q com.pigeons.daemon
-if [ $? -eq 0 ]; then
-    exit 0
-else
-    launchctl load "$PLIST_PATH"
+if [ "$(realpath '[BINARYPATH]')" != "$(realpath /usr/local/bin/pigeons 2>/dev/null)" ]; then
+    cp [BINARYPATH] /usr/local/bin/pigeons
 fi
+
+launchctl list | grep -q computer.pigeons.daemon
+if [ $? -eq 0 ]; then
+    # Already running; bootout and re-bootstrap to pick up any config changes
+    launchctl bootout system/computer.pigeons.daemon 2>/dev/null || launchctl unload "$PLIST_PATH" 2>/dev/null
+fi
+
+# bootstrap registers AND starts the service (modern launchctl)
+launchctl bootstrap system "$PLIST_PATH" 2>/dev/null || launchctl load "$PLIST_PATH"

@@ -17,7 +17,9 @@ RestartSec=3s
 [Install]
 WantedBy=multi-user.target" > /etc/systemd/system/pigeons.service
 
-cp [BINARYPATH] /usr/local/bin/pigeons
+if [ "$(realpath '[BINARYPATH]')" != "$(realpath /usr/local/bin/pigeons 2>/dev/null)" ]; then
+    cp [BINARYPATH] /usr/local/bin/pigeons
+fi
 
 systemctl is-active pigeons.service
 if [ $? -eq 0 ]; then
