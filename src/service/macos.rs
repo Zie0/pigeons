@@ -48,9 +48,6 @@ impl MacosService {
         for url in &service_params.relay_url {
             relay_args.push_str(&format!(" --relay-url {url}"));
         }
-        for url in &service_params.extra_relay_url {
-            relay_args.push_str(&format!(" --extra-relay-url {url}"));
-        }
 
         let mut temp_sh = tempfile::Builder::new()
             .prefix("pigeons_install-")

@@ -2,18 +2,110 @@ use std::fmt;
 use std::path::PathBuf;
 
 use anyhow::{Context, bail};
+use ed25519_dalek::SECRET_KEY_LENGTH;
 use homedir::my_home;
+use iroh::SecretKey;
+
+pub(crate) fn dot_ssh_secret_key(
+    default_secret_key: &SecretKey,
+    persist: bool,
+    service: bool,
+) -> anyhow::Result<SecretKey> {
+    tracing::info!(
+        "dot_ssh: Function called, persist={}, service={}",
+        persist,
+        service
+    );
+
+    let distro_home = my_home()?.ok_or_else(|| anyhow::anyhow!("home directory not found"))?;
+    #[allow(unused_mut)]
+    let mut ssh_dir = distro_home.join(".ssh");
+
+    #[cfg(target_os = "linux")]
+    if service {
+        ssh_dir = std::path::PathBuf::from("/root/.ssh");
+    }
+
+    #[cfg(target_os = "macos")]
+    if service {
+        ssh_dir = std::path::PathBuf::from("/var/root/.ssh");
+    }
+
+    #[cfg(target_os = "windows")]
+    if service {
+        ssh_dir = std::path::PathBuf::from(crate::service::WindowsService::SERVICE_SSH_DIR);
+        tracing::info!("dot_ssh: Using service SSH dir: {}", ssh_dir.display());
+
+        if !ssh_dir.exists() {
+            tracing::info!("dot_ssh: Service SSH dir doesn't exist, creating it");
+            std::fs::create_dir_all(&ssh_dir)?;
+        }
+    }
+
+    let pub_key = ssh_dir.join("pigeons_ed25519.pub");
+    let priv_key = ssh_dir.join("pigeons_ed25519");
+
+    tracing::debug!("dot_ssh: ssh_dir exists = {}", ssh_dir.exists());
+    tracing::debug!("dot_ssh: pub_key path = {}", pub_key.display());
+    tracing::debug!("dot_ssh: priv_key path = {}", priv_key.display());
+
+    match (ssh_dir.exists(), persist) {
+        (false, false) => {
+            bail!(
+                "no .ssh folder found in {}, use --persist flag to create it",
+                distro_home.display()
+            )
+        }
+        (false, true) => {
+            std::fs::create_dir_all(&ssh_dir)?;
+            println!("[INFO] created .ssh folder: {}", ssh_dir.display());
+            dot_ssh_secret_key(default_secret_key, persist, service)
+        }
+        (true, true) => {
+            if pub_key.exists() && priv_key.exists() {
+                if let Ok(secret_key) = std::fs::read(&priv_key) {
+                    let mut sk_bytes = [0u8; SECRET_KEY_LENGTH];
+                    sk_bytes.copy_from_slice(z32::decode(secret_key.as_slice())?.as_slice());
+                    Ok(SecretKey::from_bytes(&sk_bytes))
+                } else {
+                    bail!("failed to read secret key from {}", priv_key.display())
+                }
+            } else {
+                let secret_key = default_secret_key.clone();
+                let public_key = secret_key.public();
+
+                std::fs::write(&pub_key, z32::encode(public_key.as_bytes()))?;
+                std::fs::write(&priv_key, z32::encode(&secret_key.to_bytes()))?;
+
+                Ok(secret_key)
+            }
+        }
+        (true, false) => {
+            if pub_key.exists() && priv_key.exists() {
+                if let Ok(secret_key) = std::fs::read(&priv_key) {
+                    let mut sk_bytes = [0u8; SECRET_KEY_LENGTH];
+                    sk_bytes.copy_from_slice(z32::decode(secret_key.as_slice())?.as_slice());
+                    return Ok(SecretKey::from_bytes(&sk_bytes));
+                }
+            }
+            bail!(
+                "no pigeon keys found in {}, use --persist flag to create them",
+                ssh_dir.display()
+            )
+        }
+    }
+}
 
 const BEGIN_MARKER: &str = "# <pigeons>";
 const END_MARKER: &str = "# </pigeons>";
 
 #[derive(Debug, Clone)]
-pub struct TunnelEntry {
+pub struct SshConfigTunnelEntry {
     pub name: String,
     pub port: u16,
 }
 
-impl fmt::Display for TunnelEntry {
+impl fmt::Display for SshConfigTunnelEntry {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} -> 127.0.0.1:{}", self.name, self.port)
     }
@@ -101,7 +193,7 @@ pub fn remove_tunnel_host(name: &str) -> anyhow::Result<()> {
 }
 
 /// List all iroh-tunnel managed entries in ~/.ssh/config
-pub fn list_tunnel_hosts() -> anyhow::Result<Vec<TunnelEntry>> {
+pub fn list_tunnel_hosts() -> anyhow::Result<Vec<SshConfigTunnelEntry>> {
     let config_path = ssh_config_path()?;
 
     if !config_path.exists() {
@@ -123,7 +215,7 @@ pub fn list_tunnel_hosts() -> anyhow::Result<Vec<TunnelEntry>> {
             current_port = None;
         } else if line.starts_with(END_MARKER) && in_block {
             if let Some(port) = current_port {
-                entries.push(TunnelEntry {
+                entries.push(SshConfigTunnelEntry {
                     name: current_name.clone(),
                     port,
                 });
