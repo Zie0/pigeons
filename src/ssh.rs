@@ -1,5 +1,4 @@
-use std::fmt;
-use std::path::PathBuf;
+use std::{fmt, path::PathBuf};
 
 use anyhow::{Context, bail};
 use ed25519_dalek::SECRET_KEY_LENGTH;
@@ -81,12 +80,13 @@ pub(crate) fn dot_ssh_secret_key(
             }
         }
         (true, false) => {
-            if pub_key.exists() && priv_key.exists() {
-                if let Ok(secret_key) = std::fs::read(&priv_key) {
-                    let mut sk_bytes = [0u8; SECRET_KEY_LENGTH];
-                    sk_bytes.copy_from_slice(z32::decode(secret_key.as_slice())?.as_slice());
-                    return Ok(SecretKey::from_bytes(&sk_bytes));
-                }
+            if pub_key.exists()
+                && priv_key.exists()
+                && let Ok(secret_key) = std::fs::read(&priv_key)
+            {
+                let mut sk_bytes = [0u8; SECRET_KEY_LENGTH];
+                sk_bytes.copy_from_slice(z32::decode(secret_key.as_slice())?.as_slice());
+                return Ok(SecretKey::from_bytes(&sk_bytes));
             }
             bail!(
                 "no pigeon keys found in {}, use --persist flag to create them",

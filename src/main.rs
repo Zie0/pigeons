@@ -1,7 +1,8 @@
+use std::str::FromStr;
+
 use clap::{ArgAction, Args, Parser, Subcommand};
 use iroh::{EndpointId, RelayUrl};
 use pigeons::api;
-use std::str::FromStr;
 
 const RELAY_URL_HELP: &str = "use this relay server, replacing the defaults (repeatable)";
 
@@ -94,7 +95,6 @@ impl TryInto<pigeons::api::CarryArgs> for CarryArgs {
     fn try_into(self) -> Result<pigeons::api::CarryArgs, Self::Error> {
         let relay_urls = parse_relay_urls(&self.relay_url)?;
         let endpoint_id = parse_endpoint_id(&self.public_key)?;
-        let key_str = self.public_key;
 
         let tunnel_name = self.tunnel_name.unwrap_or_else(|| {
             let key_str = format!("{}", endpoint_id);
@@ -104,7 +104,7 @@ impl TryInto<pigeons::api::CarryArgs> for CarryArgs {
         Ok(pigeons::api::CarryArgs {
             endpoint_id,
             tunnel_name,
-            relay_urls: relay_urls,
+            relay_urls,
             bind_port: self.bind_port,
             no_ssh_config: self.no_ssh_config,
         })

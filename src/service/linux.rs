@@ -1,5 +1,4 @@
-use crate::Service;
-use crate::ServiceParams;
+use crate::{Service, ServiceParams};
 
 #[cfg(target_os = "linux")]
 #[derive(Debug, Clone)]

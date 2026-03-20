@@ -27,15 +27,6 @@ pub async fn run_service(
     .await
 }
 
-#[cfg(not(target_os = "windows"))]
-pub async fn run_service(
-    _ssh_port: u16,
-    _relay_url: Vec<String>,
-    _extra_relay_url: Vec<String>,
-) -> anyhow::Result<()> {
-    anyhow::bail!("service run is only supported on windows");
-}
-
 #[derive(Debug, Clone)]
 pub struct ServiceParams {
     pub ssh_port: u16,

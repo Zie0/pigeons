@@ -1,5 +1,4 @@
-use iroh::endpoint::Connection;
-use iroh::protocol::ProtocolHandler;
+use iroh::{endpoint::Connection, protocol::ProtocolHandler};
 use tokio::net::TcpStream;
 
 #[derive(Debug)]

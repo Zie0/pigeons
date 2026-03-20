@@ -3,9 +3,9 @@ use homedir::my_home;
 use iroh::{EndpointId, RelayUrl, SecretKey};
 use tokio::net::{TcpListener, TcpStream};
 
-use crate::protocol::PigeonsProtocol;
-use crate::service::ServiceParams;
-use crate::{ssh, ssh::dot_ssh_secret_key, tunnel::Tunnel};
+use crate::{
+    protocol::PigeonsProtocol, service::ServiceParams, ssh, ssh::dot_ssh_secret_key, tunnel::Tunnel,
+};
 
 pub async fn info_mode() -> anyhow::Result<()> {
     let server_key = dot_ssh_secret_key(&SecretKey::generate(&mut rand::rng()), false, false).ok();

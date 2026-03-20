@@ -1,5 +1,4 @@
-use crate::Service;
-use crate::ServiceParams;
+use crate::{Service, ServiceParams};
 
 #[cfg(target_os = "macos")]
 #[derive(Debug, Clone)]

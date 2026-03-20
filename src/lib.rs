@@ -4,6 +4,5 @@ mod service;
 pub mod ssh;
 mod tunnel;
 
-pub use service::Service;
-pub use service::ServiceParams;
+pub use service::{Service, ServiceParams};
 pub use tunnel::{Tunnel, TunnelBuilder};

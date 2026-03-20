@@ -1,6 +1,6 @@
-use crate::{Service, ServiceParams};
-
 use anyhow::{Context, anyhow, bail};
+
+use crate::{Service, ServiceParams};
 
 #[cfg(target_os = "windows")]
 mod firewall;
@@ -18,7 +18,6 @@ use std::{
 
 #[cfg(target_os = "windows")]
 use tokio::task;
-
 #[cfg(target_os = "windows")]
 use windows_service::{
     Error as WinServiceError,
@@ -29,7 +28,6 @@ use windows_service::{
     },
     service_manager::{ServiceManager, ServiceManagerAccess},
 };
-
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::{
     Foundation::{
@@ -57,9 +55,6 @@ static SERVICE_SSH_PORT: OnceLock<u16> = OnceLock::new();
 
 #[cfg(target_os = "windows")]
 static SERVICE_RELAY_URLS: OnceLock<Vec<String>> = OnceLock::new();
-
-#[cfg(target_os = "windows")]
-static SERVICE_EXTRA_RELAY_URLS: OnceLock<Vec<String>> = OnceLock::new();
 
 #[cfg(target_os = "windows")]
 impl Service for WindowsService {
@@ -105,7 +100,6 @@ impl WindowsService {
             .ok_or_else(|| anyhow!("service port already initialized with different value"))?;
 
         let _ = SERVICE_RELAY_URLS.set(service_params.relay_url);
-        let _ = SERVICE_EXTRA_RELAY_URLS.set(service_params.extra_relay_url);
 
         service_runtime::run().context("failed to start windows service dispatcher")?;
         Ok(())
@@ -120,10 +114,6 @@ impl WindowsService {
 
     fn service_relay_urls() -> Vec<String> {
         SERVICE_RELAY_URLS.get().cloned().unwrap_or_default()
-    }
-
-    fn service_extra_relay_urls() -> Vec<String> {
-        SERVICE_EXTRA_RELAY_URLS.get().cloned().unwrap_or_default()
     }
 
     pub const SERVICE_NAME: &'static str = "pigeons";
@@ -230,10 +220,6 @@ impl WindowsService {
                 ];
                 for url in &service_params.relay_url {
                     args.push(OsString::from("--relay-url"));
-                    args.push(OsString::from(url));
-                }
-                for url in &service_params.extra_relay_url {
-                    args.push(OsString::from("--extra-relay-url"));
                     args.push(OsString::from(url));
                 }
                 args
@@ -523,9 +509,8 @@ impl WindowsService {
 
 #[cfg(target_os = "windows")]
 mod service_runtime {
-    use super::WindowsService;
-    use crate::HomeArgs;
     use std::{ffi::OsString, io, sync::mpsc, time::Duration};
+
     use tokio::runtime::Builder;
     use windows_service::{
         Result as WinResult, define_windows_service,
@@ -536,6 +521,9 @@ mod service_runtime {
         service_control_handler::{self, ServiceControlHandlerResult},
         service_dispatcher,
     };
+
+    use super::WindowsService;
+    use crate::HomeArgs;
 
     const STOP_EVENT_CODE: u32 = 130;
 
@@ -567,7 +555,6 @@ mod service_runtime {
 
         let ssh_port = WindowsService::service_port().map_err(anyhow_to_win_error)?;
         let relay_url = WindowsService::service_relay_urls();
-        let extra_relay_url = WindowsService::service_extra_relay_urls();
 
         tracing::info!("run_service_worker: SSH port = {}", ssh_port);
 
@@ -613,7 +600,6 @@ mod service_runtime {
                     ssh_port,
                     persist: true,
                     relay_url,
-                    extra_relay_url,
                 },
                 true,
             )
