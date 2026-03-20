@@ -1,6 +1,3 @@
-use anyhow::bail;
-use ed25519_dalek::SECRET_KEY_LENGTH;
-use homedir::my_home;
 use std::sync::Arc;
 
 use iroh::{
@@ -65,11 +62,6 @@ impl TunnelBuilder {
 
     pub fn relay_urls(mut self, urls: Vec<RelayUrl>) -> Self {
         self.relay_urls = urls;
-        self
-    }
-
-    pub fn extra_relay_urls(mut self, urls: Vec<RelayUrl>) -> Self {
-        self.extra_relay_urls = urls;
         self
     }
 
