@@ -17,7 +17,7 @@ cat > "$PLIST_PATH" <<'PLIST_EOF'
     <array>
         <string>/bin/bash</string>
         <string>-c</string>
-        <string>pigeons home -p --ssh-port [SSHPORT][RELAYARGS]</string>
+        <string>pigeons roost --ssh-port [SSHPORT][RELAYARGS]</string>
     </array>
     <key>RunAtLoad</key>
     <true/>

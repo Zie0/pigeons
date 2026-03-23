@@ -14,26 +14,6 @@ pub fn home_ssh_dir() -> anyhow::Result<PathBuf> {
     Ok(ssh_dir)
 }
 
-pub(crate) fn system_service_ssh_dir() -> anyhow::Result<PathBuf> {
-    #[cfg(target_os = "linux")]
-    return Ok(std::path::PathBuf::from("/root/.ssh"));
-
-    #[cfg(target_os = "macos")]
-    return Ok(std::path::PathBuf::from("/var/root/.ssh"));
-
-    #[cfg(target_os = "windows")]
-    {
-        let ssh_dir = std::path::PathBuf::from(crate::service::WindowsService::SERVICE_SSH_DIR);
-        tracing::info!("dot_ssh: Using service SSH dir: {}", ssh_dir.display());
-
-        if !ssh_dir.exists() {
-            tracing::info!("dot_ssh: Service SSH dir doesn't exist, creating it");
-            std::fs::create_dir_all(&ssh_dir)?;
-        }
-        return Ok(ssh_dir);
-    }
-}
-
 pub fn dot_ssh_secret_key(ssh_dir: PathBuf, persist: bool) -> anyhow::Result<SecretKey> {
     tracing::info!("dot_ssh: Function called, persist={}", persist);
 
@@ -92,31 +72,27 @@ pub fn dot_ssh_secret_key(ssh_dir: PathBuf, persist: bool) -> anyhow::Result<Sec
     }
 }
 
-const BEGIN_MARKER: &str = "# <pigeons>";
-const END_MARKER: &str = "# </pigeons>";
-
-#[derive(Debug, Clone)]
-pub struct SshConfigTunnelEntry {
-    pub name: String,
-    pub port: u16,
-}
-
-impl fmt::Display for SshConfigTunnelEntry {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} -> 127.0.0.1:{}", self.name, self.port)
-    }
-}
-
 fn ssh_config_path() -> anyhow::Result<PathBuf> {
     let home = my_home()?.ok_or_else(|| anyhow::anyhow!("home directory not found"))?;
     Ok(home.join(".ssh").join("config"))
 }
 
-/// Add or update a tunnel host entry in ~/.ssh/config
-pub fn add_tunnel_host(name: &str, port: u16) -> anyhow::Result<()> {
+#[derive(Debug, Clone)]
+pub struct SshConfigPigeonEntry {
+    pub name: String,
+    pub endpoint_id: String,
+}
+
+impl fmt::Display for SshConfigPigeonEntry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} -> {}", self.name, self.endpoint_id)
+    }
+}
+
+/// Add or update a pigeon host entry in ~/.ssh/config using ProxyCommand
+pub fn add_tunnel_host(name: &str, endpoint_id: &str) -> anyhow::Result<()> {
     let config_path = ssh_config_path()?;
 
-    // Ensure ~/.ssh directory exists
     if let Some(parent) = config_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -129,20 +105,15 @@ pub fn add_tunnel_host(name: &str, port: u16) -> anyhow::Result<()> {
     };
 
     // Remove existing entry for this name if present
-    let cleaned = remove_entry_from_content(&existing, name);
+    let cleaned = remove_host_block(&existing, name);
 
-    // Build new entry
     let block = format!(
-        "{BEGIN_MARKER}{name}\n\
-         Host {name}\n\
-         \x20   HostName 127.0.0.1\n\
-         \x20   Port {port}\n\
+        "Host {name}\n\
+         \x20   ProxyCommand pigeons fly --stdio {endpoint_id}\n\
          \x20   UserKnownHostsFile /dev/null\n\
-         \x20   StrictHostKeyChecking no\n\
-         {END_MARKER}{name}\n"
+         \x20   StrictHostKeyChecking no\n"
     );
 
-    // Append to config
     let mut new_content = cleaned;
     if !new_content.is_empty() && !new_content.ends_with('\n') {
         new_content.push('\n');
@@ -152,18 +123,10 @@ pub fn add_tunnel_host(name: &str, port: u16) -> anyhow::Result<()> {
     }
     new_content.push_str(&block);
 
-    // Write atomically: write to temp file then rename
-    let dir = config_path.parent().unwrap();
-    let temp_path = dir.join(".config.pigeons.tmp");
-    std::fs::write(&temp_path, &new_content)
-        .with_context(|| format!("failed to write {}", temp_path.display()))?;
-    std::fs::rename(&temp_path, &config_path)
-        .with_context(|| format!("failed to rename temp file to {}", config_path.display()))?;
-
-    Ok(())
+    atomic_write(&config_path, &new_content)
 }
 
-/// Remove a tunnel host entry from ~/.ssh/config
+/// Remove a pigeon host entry from ~/.ssh/config
 pub fn remove_tunnel_host(name: &str) -> anyhow::Result<()> {
     let config_path = ssh_config_path()?;
 
@@ -174,22 +137,18 @@ pub fn remove_tunnel_host(name: &str) -> anyhow::Result<()> {
     let existing = std::fs::read_to_string(&config_path)
         .with_context(|| format!("failed to read {}", config_path.display()))?;
 
-    let cleaned = remove_entry_from_content(&existing, name);
+    let cleaned = remove_host_block(&existing, name);
 
     if cleaned == existing {
-        bail!("no tunnel entry '{}' found in ssh config", name);
+        bail!("no pigeon entry '{}' found in ssh config", name);
     }
 
-    let dir = config_path.parent().unwrap();
-    let temp_path = dir.join(".config.pigeons.tmp");
-    std::fs::write(&temp_path, &cleaned)?;
-    std::fs::rename(&temp_path, &config_path)?;
-
-    Ok(())
+    atomic_write(&config_path, &cleaned)
 }
 
-/// List all iroh-tunnel managed entries in ~/.ssh/config
-pub fn list_tunnel_hosts() -> anyhow::Result<Vec<SshConfigTunnelEntry>> {
+/// List all pigeons-managed entries in ~/.ssh/config by finding Host blocks
+/// whose ProxyCommand starts with "pigeons fly"
+pub fn list_tunnel_hosts() -> anyhow::Result<Vec<SshConfigPigeonEntry>> {
     let config_path = ssh_config_path()?;
 
     if !config_path.exists() {
@@ -200,72 +159,99 @@ pub fn list_tunnel_hosts() -> anyhow::Result<Vec<SshConfigTunnelEntry>> {
         .with_context(|| format!("failed to read {}", config_path.display()))?;
 
     let mut entries = Vec::new();
-    let mut in_block = false;
-    let mut current_name = String::new();
-    let mut current_port: Option<u16> = None;
+    let mut current_host: Option<String> = None;
+    let mut current_endpoint: Option<String> = None;
 
     for line in content.lines() {
-        if let Some(name) = line.strip_prefix(BEGIN_MARKER) {
-            in_block = true;
-            current_name = name.trim().to_string();
-            current_port = None;
-        } else if line.starts_with(END_MARKER) && in_block {
-            if let Some(port) = current_port {
-                entries.push(SshConfigTunnelEntry {
-                    name: current_name.clone(),
-                    port,
+        let trimmed = line.trim();
+
+        if let Some(rest) = trimmed.strip_prefix("Host ") {
+            // Flush previous block if it was a pigeon entry
+            if let (Some(host), Some(endpoint)) = (current_host.take(), current_endpoint.take()) {
+                entries.push(SshConfigPigeonEntry {
+                    name: host,
+                    endpoint_id: endpoint,
                 });
             }
-            in_block = false;
-        } else if in_block {
-            let trimmed = line.trim();
-            if let Some(port_str) = trimmed.strip_prefix("Port ") {
-                current_port = port_str.trim().parse().ok();
+            current_host = Some(rest.trim().to_string());
+            current_endpoint = None;
+        } else if let Some(proxy_cmd) = trimmed.strip_prefix("ProxyCommand ") {
+            if let Some(endpoint_id) = parse_pigeons_proxy_command(proxy_cmd.trim()) {
+                current_endpoint = Some(endpoint_id);
             }
         }
+    }
+
+    // Flush last block
+    if let (Some(host), Some(endpoint)) = (current_host, current_endpoint) {
+        entries.push(SshConfigPigeonEntry {
+            name: host,
+            endpoint_id: endpoint,
+        });
     }
 
     Ok(entries)
 }
 
-/// Remove a named entry from ssh config content, returning the cleaned string
-fn remove_entry_from_content(content: &str, name: &str) -> String {
-    let begin = format!("{BEGIN_MARKER}{name}");
-    let end = format!("{END_MARKER}{name}");
+/// Parse a ProxyCommand value like "pigeons fly --stdio <endpoint_id>"
+/// and return the endpoint_id if it matches
+fn parse_pigeons_proxy_command(cmd: &str) -> Option<String> {
+    let parts: Vec<&str> = cmd.split_whitespace().collect();
+    // expect: ["pigeons", "fly", "--stdio", "<endpoint_id>"]
+    if parts.len() >= 4
+        && parts[0] == "pigeons"
+        && parts[1] == "fly"
+        && parts[2] == "--stdio"
+    {
+        Some(parts[3].to_string())
+    } else {
+        None
+    }
+}
 
+/// Remove a Host block by name from ssh config content.
+/// A Host block starts with "Host <name>" and ends at the next "Host " line
+/// or end of file.
+fn remove_host_block(content: &str, name: &str) -> String {
     let mut result = String::new();
-    let mut in_block = false;
-    let mut skip_next_blank = false;
+    let mut skipping = false;
 
     for line in content.lines() {
-        if line.starts_with(&begin) {
-            in_block = true;
-            skip_next_blank = true;
+        let trimmed = line.trim();
+
+        if let Some(rest) = trimmed.strip_prefix("Host ") {
+            if rest.trim() == name {
+                skipping = true;
+                continue;
+            } else {
+                skipping = false;
+            }
+        }
+
+        if skipping {
             continue;
         }
-        if line.starts_with(&end) && in_block {
-            in_block = false;
-            continue;
-        }
-        if in_block {
-            continue;
-        }
-        // Skip blank lines that immediately preceded or follow a removed block
-        if skip_next_blank && line.trim().is_empty() {
-            skip_next_blank = false;
-            continue;
-        }
-        skip_next_blank = false;
+
         result.push_str(line);
         result.push('\n');
     }
 
-    // Trim trailing whitespace
+    // Trim trailing blank lines
     while result.ends_with("\n\n") {
         result.pop();
     }
 
     result
+}
+
+fn atomic_write(path: &PathBuf, content: &str) -> anyhow::Result<()> {
+    let dir = path.parent().unwrap();
+    let temp_path = dir.join(".config.pigeons.tmp");
+    std::fs::write(&temp_path, content)
+        .with_context(|| format!("failed to write {}", temp_path.display()))?;
+    std::fs::rename(&temp_path, path)
+        .with_context(|| format!("failed to rename temp file to {}", path.display()))?;
+    Ok(())
 }
 
 pub(crate) async fn ensure_local_ssh_server_exists(ssh_port: u16) -> anyhow::Result<()> {

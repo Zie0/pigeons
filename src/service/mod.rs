@@ -13,49 +13,6 @@ mod windows;
 #[cfg(target_os = "windows")]
 pub(crate) use crate::service::windows::WindowsService;
 
-#[cfg(target_os = "windows")]
-pub async fn run_service(ssh_port: u16, relay_url: Vec<String>) -> anyhow::Result<()> {
-    WindowsService::run_service(ServiceParams {
-        ssh_port,
-        relay_url,
-    })
-    .await
-}
-
-// pub async fn install_sevice(ssh_port: u16, relay_url: Vec<String>) -> anyhow::Result<()> {
-//     if crate::service::install(ServiceParams {
-//         ssh_port,
-//         relay_url,
-//     })
-//     .await
-//     .is_err()
-//     {
-//         anyhow::bail!("coop installation is only supported on linux, macos, and windows");
-//     }
-
-//     // Give the daemon a moment to start and generate keys
-//     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-
-//     match dot_ssh_secret_key(&SecretKey::generate(&mut rand::rng()), false, true) {
-//         Ok(key) => {
-//             println!();
-//             print_roost_info(key.public(), ssh_port);
-//         }
-//         Err(_) => {
-//             println!("Service installed. Run 'pigeons info' to see your roost ID.");
-//         }
-//     }
-
-//     Ok(())
-// }
-
-// pub async fn uninstall_service() -> anyhow::Result<()> {
-//     if crate::service::uninstall().await.is_err() {
-//         anyhow::bail!("coop removal is only supported on linux, macos, or windows");
-//     }
-//     Ok(())
-// }
-
 #[derive(Debug, Clone)]
 pub struct ServiceParams {
     pub ssh_port: u16,
@@ -70,14 +27,14 @@ pub trait Service {
     fn uninstall() -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
 }
 
-pub async fn install(_service_params: ServiceParams) -> anyhow::Result<()> {
+pub async fn install(service_params: ServiceParams) -> anyhow::Result<()> {
     match std::env::consts::OS {
         #[cfg(target_os = "linux")]
-        "linux" => LinuxService::install(_service_params).await,
+        "linux" => LinuxService::install(service_params).await,
         #[cfg(target_os = "macos")]
-        "macos" => MacosService::install(_service_params).await,
+        "macos" => MacosService::install(service_params).await,
         #[cfg(target_os = "windows")]
-        "windows" => WindowsService::install(_service_params).await,
+        "windows" => WindowsService::install(service_params).await,
         _ => anyhow::bail!("service mode is only supported on linux, macos, and windows"),
     }
 }
@@ -86,8 +43,26 @@ pub async fn uninstall() -> anyhow::Result<()> {
     match std::env::consts::OS {
         #[cfg(target_os = "linux")]
         "linux" => LinuxService::uninstall().await,
+        #[cfg(target_os = "macos")]
+        "macos" => MacosService::uninstall().await,
         #[cfg(target_os = "windows")]
         "windows" => WindowsService::uninstall().await,
-        _ => anyhow::bail!("service mode is only supported on linux and windows"),
+        _ => anyhow::bail!("service mode is only supported on linux, macos, and windows"),
+    }
+}
+
+/// Check whether the pigeons service is installed on this system
+pub fn is_installed() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        std::path::Path::new("/Library/LaunchDaemons/computer.pigeons.daemon.plist").exists()
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::path::Path::new("/etc/systemd/system/pigeons.service").exists()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    {
+        false
     }
 }

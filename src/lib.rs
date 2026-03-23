@@ -5,8 +5,9 @@ mod ssh;
 mod tunnel;
 
 // pub use pigeons::*;
-pub use service::{Service, ServiceParams};
+pub use service::{Service, ServiceParams, install as install_service, is_installed as service_is_installed, uninstall as uninstall_service};
 pub use ssh::{
-    add_tunnel_host, dot_ssh_secret_key, home_ssh_dir, list_tunnel_hosts, remove_tunnel_host,
+    SshConfigPigeonEntry, add_tunnel_host, dot_ssh_secret_key, home_ssh_dir, list_tunnel_hosts,
+    remove_tunnel_host,
 };
 pub use tunnel::{Tunnel, TunnelBuilder};

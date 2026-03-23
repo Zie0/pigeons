@@ -10,7 +10,7 @@ Description=pigeons
 [Service]
 Type=simple
 WorkingDirectory=~
-ExecStart=/bin/bash -c 'pigeons home -p --ssh-port [SSHPORT][RELAYARGS]'
+ExecStart=/bin/bash -c 'pigeons roost --ssh-port [SSHPORT][RELAYARGS]'
 Restart=on-failure
 RestartSec=3s
 

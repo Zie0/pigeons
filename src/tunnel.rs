@@ -1,6 +1,5 @@
 use anyhow::{Context, Result, anyhow};
 use std::path::PathBuf;
-use std::str::FromStr;
 
 use iroh::{
     Endpoint, EndpointId, RelayUrl, SecretKey,
@@ -9,12 +8,11 @@ use iroh::{
 };
 use tokio::{
     net::TcpListener,
-    task::{JoinHandle, JoinSet},
 };
 
 use crate::{
     protocol::PigeonsProtocol,
-    ssh::{self, dot_ssh_secret_key, home_ssh_dir},
+    ssh::{self, dot_ssh_secret_key},
 };
 
 #[derive(Debug)]
@@ -25,26 +23,6 @@ pub struct RoostConfig {
 impl Default for RoostConfig {
     fn default() -> Self {
         Self { ssh_port: 22 }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct PigeonConfig {
-    pub name: String,
-    pub remote: EndpointId,
-    pub bind_port: Option<u16>,
-}
-
-impl FromStr for PigeonConfig {
-    type Err = anyhow::Error;
-
-    /// string variant parses in three possible forms:
-    ///   1. "[endpoint_id]" -> name is generated, local bind port is randomized
-    ///   2. "[name]=[endpoint_id]" -> provided name is used, local bind port is generated
-    ///   3. "[name]:[local_bind_port]=[endpoint_id]" -> all three parameters are provided
-    /// endpoint_id must be lowercase hex-encoded
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        todo!();
     }
 }
 
@@ -117,6 +95,7 @@ impl TunnelBuilder {
         let mut router = Router::builder(endpoint.clone());
 
         if let Some(home) = &self.roost {
+            ssh::ensure_local_ssh_server_exists(home.ssh_port).await?;
             let handler = PigeonsProtocol::new(home.ssh_port);
             router = router.accept(PigeonsProtocol::ALPN, handler);
         }
@@ -160,6 +139,30 @@ impl Tunnel {
         let bind_addr = format!("127.0.0.1:{}", 0);
         let listener = TcpListener::bind(&bind_addr).await?;
         prepare_pigeon(self.endpoint().clone(), listener, remote).await
+    }
+
+    /// Bridge stdin/stdout directly to a remote roost via iroh.
+    /// Designed for use as an SSH ProxyCommand:
+    ///   ProxyCommand pigeons fly --stdio <endpoint_id>
+    pub async fn fly_stdio(&self, remote: EndpointId) -> Result<()> {
+        let conn = self
+            .endpoint()
+            .connect(remote, PigeonsProtocol::ALPN)
+            .await?;
+        let (mut iroh_send, mut iroh_recv) = conn.open_bi().await?;
+
+        let mut stdin = tokio::io::stdin();
+        let mut stdout = tokio::io::stdout();
+
+        let stdin_to_iroh = tokio::io::copy(&mut stdin, &mut iroh_send);
+        let iroh_to_stdout = tokio::io::copy(&mut iroh_recv, &mut stdout);
+
+        tokio::select! {
+            result = stdin_to_iroh => { result?; }
+            result = iroh_to_stdout => { result?; }
+        }
+
+        Ok(())
     }
 
     pub async fn close(&self) -> Result<()> {
