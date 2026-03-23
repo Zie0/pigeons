@@ -4,42 +4,38 @@ use anyhow::{Context, bail};
 use ed25519_dalek::SECRET_KEY_LENGTH;
 use homedir::my_home;
 use iroh::SecretKey;
+use tokio::net::TcpStream;
 
-pub(crate) fn dot_ssh_secret_key(
-    default_secret_key: &SecretKey,
-    persist: bool,
-    service: bool,
-) -> anyhow::Result<SecretKey> {
-    tracing::info!(
-        "dot_ssh: Function called, persist={}, service={}",
-        persist,
-        service
-    );
-
+pub fn home_ssh_dir() -> anyhow::Result<PathBuf> {
     let distro_home = my_home()?.ok_or_else(|| anyhow::anyhow!("home directory not found"))?;
     #[allow(unused_mut)]
     let mut ssh_dir = distro_home.join(".ssh");
 
+    Ok(ssh_dir)
+}
+
+pub(crate) fn system_service_ssh_dir() -> anyhow::Result<PathBuf> {
     #[cfg(target_os = "linux")]
-    if service {
-        ssh_dir = std::path::PathBuf::from("/root/.ssh");
-    }
+    return Ok(std::path::PathBuf::from("/root/.ssh"));
 
     #[cfg(target_os = "macos")]
-    if service {
-        ssh_dir = std::path::PathBuf::from("/var/root/.ssh");
-    }
+    return Ok(std::path::PathBuf::from("/var/root/.ssh"));
 
     #[cfg(target_os = "windows")]
-    if service {
-        ssh_dir = std::path::PathBuf::from(crate::service::WindowsService::SERVICE_SSH_DIR);
+    {
+        let ssh_dir = std::path::PathBuf::from(crate::service::WindowsService::SERVICE_SSH_DIR);
         tracing::info!("dot_ssh: Using service SSH dir: {}", ssh_dir.display());
 
         if !ssh_dir.exists() {
             tracing::info!("dot_ssh: Service SSH dir doesn't exist, creating it");
             std::fs::create_dir_all(&ssh_dir)?;
         }
+        return Ok(ssh_dir);
     }
+}
+
+pub fn dot_ssh_secret_key(ssh_dir: PathBuf, persist: bool) -> anyhow::Result<SecretKey> {
+    tracing::info!("dot_ssh: Function called, persist={}", persist);
 
     let pub_key = ssh_dir.join("pigeons_ed25519.pub");
     let priv_key = ssh_dir.join("pigeons_ed25519");
@@ -52,13 +48,13 @@ pub(crate) fn dot_ssh_secret_key(
         (false, false) => {
             bail!(
                 "no .ssh folder found in {}, use --persist flag to create it",
-                distro_home.display()
+                ssh_dir.display()
             )
         }
         (false, true) => {
             std::fs::create_dir_all(&ssh_dir)?;
             println!("[INFO] created .ssh folder: {}", ssh_dir.display());
-            dot_ssh_secret_key(default_secret_key, persist, service)
+            dot_ssh_secret_key(ssh_dir, persist)
         }
         (true, true) => {
             if pub_key.exists() && priv_key.exists() {
@@ -70,7 +66,7 @@ pub(crate) fn dot_ssh_secret_key(
                     bail!("failed to read secret key from {}", priv_key.display())
                 }
             } else {
-                let secret_key = default_secret_key.clone();
+                let secret_key = SecretKey::generate(&mut rand::rng());
                 let public_key = secret_key.public();
 
                 std::fs::write(&pub_key, z32::encode(public_key.as_bytes()))?;
@@ -270,4 +266,13 @@ fn remove_entry_from_content(content: &str, name: &str) -> String {
     }
 
     result
+}
+
+pub(crate) async fn ensure_local_ssh_server_exists(ssh_port: u16) -> anyhow::Result<()> {
+    match TcpStream::connect(format!("127.0.0.1:{}", ssh_port)).await {
+        Ok(_) => Ok(()),
+        Err(_) => Err(anyhow::anyhow!(format!(
+            "no sshd detected on port {ssh_port}. Make sure sshd is running before sending pigeons to this roost",
+        ))),
+    }
 }

@@ -14,18 +14,47 @@ mod windows;
 pub(crate) use crate::service::windows::WindowsService;
 
 #[cfg(target_os = "windows")]
-pub async fn run_service(
-    ssh_port: u16,
-    relay_url: Vec<String>,
-    extra_relay_url: Vec<String>,
-) -> anyhow::Result<()> {
+pub async fn run_service(ssh_port: u16, relay_url: Vec<String>) -> anyhow::Result<()> {
     WindowsService::run_service(ServiceParams {
         ssh_port,
         relay_url,
-        extra_relay_url,
     })
     .await
 }
+
+// pub async fn install_sevice(ssh_port: u16, relay_url: Vec<String>) -> anyhow::Result<()> {
+//     if crate::service::install(ServiceParams {
+//         ssh_port,
+//         relay_url,
+//     })
+//     .await
+//     .is_err()
+//     {
+//         anyhow::bail!("coop installation is only supported on linux, macos, and windows");
+//     }
+
+//     // Give the daemon a moment to start and generate keys
+//     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+//     match dot_ssh_secret_key(&SecretKey::generate(&mut rand::rng()), false, true) {
+//         Ok(key) => {
+//             println!();
+//             print_roost_info(key.public(), ssh_port);
+//         }
+//         Err(_) => {
+//             println!("Service installed. Run 'pigeons info' to see your roost ID.");
+//         }
+//     }
+
+//     Ok(())
+// }
+
+// pub async fn uninstall_service() -> anyhow::Result<()> {
+//     if crate::service::uninstall().await.is_err() {
+//         anyhow::bail!("coop removal is only supported on linux, macos, or windows");
+//     }
+//     Ok(())
+// }
 
 #[derive(Debug, Clone)]
 pub struct ServiceParams {

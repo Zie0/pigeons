@@ -1,21 +1,169 @@
-use std::sync::Arc;
+use anyhow::{Context, Result, anyhow};
+use std::path::PathBuf;
+use std::str::FromStr;
 
 use iroh::{
-    Endpoint, RelayConfig, RelayUrl, SecretKey,
+    Endpoint, EndpointId, RelayUrl, SecretKey,
     endpoint::{RelayMode, presets},
     protocol::Router,
 };
+use tokio::{
+    net::TcpListener,
+    task::{JoinHandle, JoinSet},
+};
 
-use crate::{protocol::PigeonsProtocol, ssh::dot_ssh_secret_key};
+use crate::{
+    protocol::PigeonsProtocol,
+    ssh::{self, dot_ssh_secret_key, home_ssh_dir},
+};
+
+#[derive(Debug)]
+pub struct RoostConfig {
+    pub ssh_port: u16,
+}
+
+impl Default for RoostConfig {
+    fn default() -> Self {
+        Self { ssh_port: 22 }
+    }
+}
 
 #[derive(Debug, Clone)]
+pub struct PigeonConfig {
+    pub name: String,
+    pub remote: EndpointId,
+    pub bind_port: Option<u16>,
+}
+
+impl FromStr for PigeonConfig {
+    type Err = anyhow::Error;
+
+    /// string variant parses in three possible forms:
+    ///   1. "[endpoint_id]" -> name is generated, local bind port is randomized
+    ///   2. "[name]=[endpoint_id]" -> provided name is used, local bind port is generated
+    ///   3. "[name]:[local_bind_port]=[endpoint_id]" -> all three parameters are provided
+    /// endpoint_id must be lowercase hex-encoded
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        todo!();
+    }
+}
+
+#[derive(Debug)]
+pub struct TunnelBuilder {
+    /// optional roost role configuration to expose a local ssh server
+    /// through the tunnel
+    pub roost: Option<RoostConfig>,
+    /// ED25519 key to use to secure tunnel communications, the endpoint ID that
+    /// identifies the tunnel is the public half of this keypair
+    pub secret_key: SecretKey,
+    /// the set of iroh relay urls to use. Empty set will default to public
+    /// relay servers run by number 0
+    pub relay_urls: Vec<RelayUrl>,
+    /// iroh services client for telemetry aggregation
+    pub isvc_client_secret: Option<String>,
+}
+
+impl Default for TunnelBuilder {
+    fn default() -> Self {
+        TunnelBuilder {
+            roost: None,
+            secret_key: SecretKey::generate(&mut rand::rng()),
+            relay_urls: Vec::new(),
+            isvc_client_secret: None,
+        }
+    }
+}
+
+impl TunnelBuilder {
+    /// read tunnel configuration from the provided ssh directory:
+    /// * reads a vec of PigeonConfig from the ssh_config file
+    /// * checks for pigeons_ed211519 key, uses it if present
+    // pub async fn ssh_dir(&mut self, ssh_dir: PathBuf) -> Result<Self> {
+    //     // TODO - read pigeons from ProxyCommand
+    //     // self.pigeons =
+    //     self
+    // }
+
+    fn new(secret_key: SecretKey) -> Self {
+        TunnelBuilder {
+            roost: None,
+            secret_key,
+            relay_urls: vec![],
+            isvc_client_secret: None,
+        }
+    }
+
+    pub async fn build(self) -> Result<Tunnel> {
+        let mut builder = Endpoint::builder(presets::N0).secret_key(self.secret_key.clone());
+
+        if !self.relay_urls.is_empty() {
+            let relay_map = self.relay_urls.iter().cloned().collect();
+            builder = builder.relay_mode(RelayMode::Custom(relay_map));
+        }
+
+        let endpoint = builder.bind().await?;
+
+        let isvc_client = match self.isvc_client_secret {
+            Some(secret) => {
+                let client = iroh_services::Client::builder(&endpoint)
+                    .api_secret_from_str(&secret)?
+                    .build()
+                    .await?;
+                Some(client)
+            }
+            None => None,
+        };
+
+        let mut router = Router::builder(endpoint.clone());
+
+        if let Some(home) = &self.roost {
+            let handler = PigeonsProtocol::new(home.ssh_port);
+            router = router.accept(PigeonsProtocol::ALPN, handler);
+        }
+
+        let router = router.spawn();
+
+        // let mut pigeon_tasks = JoinSet::new();
+        // for cfg in &self.pigeons {
+        //     let bind_addr = format!("127.0.0.1:{}", cfg.bind_port.unwrap_or(0));
+        //     let listener = TcpListener::bind(&bind_addr).await?;
+        //     let pigeon_fut = prepare_pigeon(router.endpoint().clone(), listener, cfg.clone());
+        //     pigeon_tasks.spawn(pigeon_fut);
+        // }
+
+        Ok(Tunnel {
+            router,
+            isvc_client,
+        })
+    }
+}
+
+#[derive(Debug)]
 pub struct Tunnel {
     router: Router,
+    #[allow(dead_code)]
+    isvc_client: Option<iroh_services::Client>,
 }
 
 impl Tunnel {
-    pub fn builder() -> TunnelBuilder {
+    pub fn builder_ephemeral() -> TunnelBuilder {
         TunnelBuilder::default()
+    }
+
+    pub fn builder_from_ssh_dir(ssh_dir: PathBuf) -> Result<TunnelBuilder> {
+        let secret_key = dot_ssh_secret_key(ssh_dir, true)?;
+        Ok(TunnelBuilder::new(secret_key))
+    }
+
+    pub async fn fly(&self, remote: EndpointId) -> Result<()> {
+        // todo - allow specifying the local bind port
+        let bind_addr = format!("127.0.0.1:{}", 0);
+        let listener = TcpListener::bind(&bind_addr).await?;
+        prepare_pigeon(self.endpoint().clone(), listener, remote).await
+    }
+
+    pub async fn close(&self) -> Result<()> {
+        self.router.shutdown().await.context("shutting down router")
     }
 
     pub fn endpoint(&self) -> &Endpoint {
@@ -23,97 +171,51 @@ impl Tunnel {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct TunnelBuilder {
-    secret_key: SecretKey,
-    accept_incoming: bool,
-    accept_port: Option<u16>,
-    relay_urls: Vec<RelayUrl>,
-    extra_relay_urls: Vec<RelayUrl>,
+async fn prepare_pigeon(
+    endpoint: Endpoint,
+    listener: TcpListener,
+    remote: EndpointId,
+) -> Result<()> {
+    loop {
+        match listener.accept().await {
+            Ok((tcp_stream, peer_addr)) => {
+                println!("Pigeon departing from {peer_addr}");
+                let endpoint = endpoint.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = bridge_connection(tcp_stream, &endpoint, remote).await {
+                        eprintln!("Pigeon lost in transit: {e}");
+                    }
+                });
+            }
+            Err(err) => {
+                eprintln!("Failed to accept connection: {err}");
+                return Err(anyhow!(err));
+            }
+        }
+    }
 }
 
-impl Default for TunnelBuilder {
-    fn default() -> Self {
-        TunnelBuilder {
-            secret_key: SecretKey::generate(&mut rand::rng()),
-            accept_incoming: false,
-            accept_port: None,
-            relay_urls: Vec::new(),
-            extra_relay_urls: Vec::new(),
+/// takes a TCP stream & adds it
+async fn bridge_connection(
+    mut tcp_stream: tokio::net::TcpStream,
+    endpoint: &Endpoint,
+    remote_id: EndpointId,
+) -> anyhow::Result<()> {
+    let conn = endpoint.connect(remote_id, PigeonsProtocol::ALPN).await?;
+    let (mut iroh_send, mut iroh_recv) = conn.open_bi().await?;
+    let (mut tcp_read, mut tcp_write) = tcp_stream.split();
+
+    let tcp_to_iroh = async { tokio::io::copy(&mut tcp_read, &mut iroh_send).await };
+    let iroh_to_tcp = async { tokio::io::copy(&mut iroh_recv, &mut tcp_write).await };
+
+    tokio::select! {
+        result = tcp_to_iroh => {
+            let _ = result;
+        }
+        result = iroh_to_tcp => {
+            let _ = result;
         }
     }
-}
 
-impl TunnelBuilder {
-    pub fn accept_incoming(mut self, accept_incoming: bool) -> Self {
-        self.accept_incoming = accept_incoming;
-        self
-    }
-
-    pub fn accept_port(mut self, accept_port: u16) -> Self {
-        self.accept_port = Some(accept_port);
-        self
-    }
-
-    pub fn secret_key(mut self, secret_key: SecretKey) -> Self {
-        self.secret_key = secret_key;
-        self
-    }
-
-    pub fn relay_urls(mut self, urls: Vec<RelayUrl>) -> Self {
-        self.relay_urls = urls;
-        self
-    }
-
-    pub fn dot_ssh_integration(mut self, persist: bool, service: bool) -> Self {
-        tracing::info!(
-            "dot_ssh_integration: persist={}, service={}",
-            persist,
-            service
-        );
-
-        match dot_ssh_secret_key(&self.secret_key, persist, service) {
-            Ok(secret_key) => {
-                tracing::info!("dot_ssh_integration: Successfully loaded/created SSH keys");
-                self.secret_key = secret_key;
-            }
-            Err(e) => {
-                tracing::error!(
-                    "dot_ssh_integration: Failed to load/create SSH keys: {:#}",
-                    e
-                );
-                eprintln!("Warning: Failed to load/create persistent SSH keys: {e:#}");
-                eprintln!("Continuing with ephemeral keys...");
-            }
-        }
-        self
-    }
-
-    pub async fn build(&mut self) -> anyhow::Result<Tunnel> {
-        let mut builder = Endpoint::builder(presets::N0).secret_key(self.secret_key.clone());
-
-        if !self.relay_urls.is_empty() {
-            let relay_map = self.relay_urls.iter().cloned().collect();
-            builder = builder.relay_mode(RelayMode::Custom(relay_map));
-        } else if !self.extra_relay_urls.is_empty() {
-            let relay_map = RelayMode::Default.relay_map();
-            for url in &self.extra_relay_urls {
-                relay_map.insert(url.clone(), Arc::new(RelayConfig::from(url.clone())));
-            }
-            builder = builder.relay_mode(RelayMode::Custom(relay_map));
-        }
-
-        let endpoint = builder.bind().await?;
-        let mut router = Router::builder(endpoint.clone());
-
-        if self.accept_incoming {
-            let ssh_port = self.accept_port.unwrap_or(22);
-            let handler = PigeonsProtocol::new(ssh_port);
-            router = router.accept(PigeonsProtocol::ALPN, handler);
-        }
-
-        let router = router.spawn();
-
-        Ok(Tunnel { router })
-    }
+    Ok(())
 }

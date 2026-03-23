@@ -1,26 +1,26 @@
 [Español](README_es.md) [Portuguese](README_pt.md)
-# iroh-ssh
+# pigeons
 
-[![Crates.io](https://img.shields.io/crates/v/iroh-ssh.svg)](https://crates.io/crates/iroh-ssh)
-[![Documentation](https://docs.rs/iroh-ssh/badge.svg)](https://docs.rs/iroh-ssh)
+[![Crates.io](https://img.shields.io/crates/v/pigeons.svg)](https://crates.io/crates/pigeons)
+[![Documentation](https://docs.rs/pigeons/badge.svg)](https://docs.rs/pigeons)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE)
-[![AUR](https://img.shields.io/aur/version/iroh-ssh-git)](https://aur.archlinux.org/packages/iroh-ssh-git)
+[![AUR](https://img.shields.io/aur/version/pigeons-git)](https://aur.archlinux.org/packages/pigeons-git)
 
 **SSH to any machine without ip, behind a NAT/firewall without port forwarding or VPN setup.**
 
 ```bash
 # on server
-> iroh-ssh server --persist
+> pigeons server --persist
 
     Connect to this this machine:
 
-    iroh-ssh my-user@bb8e1a5661a6dfa9ae2dd978922f30f524f6fd8c99b3de021c53f292aae74330
+    pigeons my-user@bb8e1a5661a6dfa9ae2dd978922f30f524f6fd8c99b3de021c53f292aae74330
 
 
 # on client
-> iroh-ssh user@bb8e1a5661a6dfa9ae2dd978922f30f524f6fd8c99b3de021c53f292aae74330
+> pigeons user@bb8e1a5661a6dfa9ae2dd978922f30f524f6fd8c99b3de021c53f292aae74330
 # or with certificate
-> iroh-ssh -i ~/.ssh/id_rsa_my_cert my-user@bb8e1a5661a6dfa9ae2dd978922f30f524f6fd8c99b3de021c53f292aae74330
+> pigeons -i ~/.ssh/id_rsa_my_cert my-user@bb8e1a5661a6dfa9ae2dd978922f30f524f6fd8c99b3de021c53f292aae74330
 ```
 
 **That's all it takes.** (requires ssh/(an ssh server) to be installed)
@@ -30,45 +30,40 @@
 ## Installation
 
 ```bash
-cargo install iroh-ssh
+cargo install pigeons
 ```
 
-Arch Linux ([AUR](https://aur.archlinux.org/packages/iroh-ssh-git))
-```bash
-yay -S iroh-ssh-git
-```
-
-Download and setup the binary automatically for your operating system from [GitHub Releases](https://github.com/rustonbsd/iroh-ssh/releases):
+Download and setup the binary automatically for your operating system from [GitHub Releases](https://github.com/rustonbsd/pigeons/releases):
 
 Linux
 ```bash
 # Linux
-wget https://github.com/rustonbsd/iroh-ssh/releases/download/0.2.9/iroh-ssh.linux
-chmod +x iroh-ssh.linux
-sudo mv iroh-ssh.linux /usr/local/bin/iroh-ssh
+wget https://github.com/rustonbsd/pigeons/releases/download/0.2.9/pigeons.linux
+chmod +x pigeons.linux
+sudo mv pigeons.linux /usr/local/bin/pigeons
 ```
 
 macOS
 ```bash
 # macOS arm
-curl -LJO https://github.com/rustonbsd/iroh-ssh/releases/download/0.2.9/iroh-ssh.macos
-chmod +x iroh-ssh.macos
-sudo mv iroh-ssh.macos /usr/local/bin/iroh-ssh
+curl -LJO https://github.com/rustonbsd/pigeons/releases/download/0.2.9/pigeons.macos
+chmod +x pigeons.macos
+sudo mv pigeons.macos /usr/local/bin/pigeons
 ```
 
 Windows
 ```bash
 # Windows x86 64bit
-curl -L -o iroh-ssh.exe https://github.com/rustonbsd/iroh-ssh/releases/download/0.2.9/iroh-ssh.exe
-mkdir %LOCALAPPDATA%\iroh-ssh
-move iroh-ssh.exe %LOCALAPPDATA%\iroh-ssh\
-setx PATH "%PATH%;%LOCALAPPDATA%\iroh-ssh"
+curl -L -o pigeons.exe https://github.com/rustonbsd/pigeons/releases/download/0.2.9/pigeons.exe
+mkdir %LOCALAPPDATA%\pigeons
+move pigeons.exe %LOCALAPPDATA%\pigeons\
+setx PATH "%PATH%;%LOCALAPPDATA%\pigeons"
 ```
 
 Verify that the installation was successful
 ```bash
 # restart your terminal first
-> iroh-ssh --help
+> pigeons --help
 ```
 
 ---
@@ -78,7 +73,7 @@ Verify that the installation was successful
 ```bash
 # Install for your distro (see above)
 # Connect from anywhere
-> iroh-ssh my-user@38b7dc10df96005255c3beaeaeef6cfebd88344aa8c85e1dbfc1ad5e50f372ac
+> pigeons my-user@38b7dc10df96005255c3beaeaeef6cfebd88344aa8c85e1dbfc1ad5e50f372ac
 ```
 
 Works through any firewall, NAT, or private network. No configuration needed.
@@ -94,16 +89,16 @@ Works through any firewall, NAT, or private network. No configuration needed.
 # Install for your distro (see above)
 # (use with tmux or install as service on linux)
 
-> iroh-ssh server --persist
+> pigeons server --persist
 
     Connect to this this machine:
 
-    iroh-ssh my-user@bb8e1a5661a6dfa9ae2dd978922f30f524f6fd8c99b3de021c53f292aae74330
+    pigeons my-user@bb8e1a5661a6dfa9ae2dd978922f30f524f6fd8c99b3de021c53f292aae74330
 
     (using persistent keys in /home/my-user/.ssh/irohssh_ed25519)
 
     Server listening for iroh connections...
-    client -> iroh-ssh -> direct connect -> iroh-ssh -> local ssh :22
+    client -> pigeons -> direct connect -> pigeons -> local ssh :22
     Waiting for incoming connections...
     Press Ctrl+C to exit
 
@@ -115,15 +110,15 @@ or use ephemeral keys
 # Install for your distro (see above)
 # (use with tmux or install as service on linux)
 
-> iroh-ssh server
+> pigeons server
 
     Connect to this this machine:
 
-    iroh-ssh my-user@bb8e1a5661a6dfa9ae2dd978922f30f524f6fd8c99b3de021c53f292aae74330
+    pigeons my-user@bb8e1a5661a6dfa9ae2dd978922f30f524f6fd8c99b3de021c53f292aae74330
 
-    warning: (using ephemeral keys, run 'iroh-ssh server --persist' to create persistent keys)
+    warning: (using ephemeral keys, run 'pigeons server --persist' to create persistent keys)
 
-    client -> iroh-ssh -> direct connect -> iroh-ssh -> local ssh :22
+    client -> pigeons -> direct connect -> pigeons -> local ssh :22
     Waiting for incoming connections...
     Press Ctrl+C to exit
     Server listening for iroh connections...
@@ -138,17 +133,17 @@ Display its Endpoint ID and share it to allow connection
 ## Connection information
 ```bash
 // note: works only with persistent keys
-> iroh-ssh info
+> pigeons info
 
-    Your iroh-ssh endpoint id: 38b7dc10df96005255c3beaeaeef6cfebd88344aa8c85e1dbfc1ad5e50f372ac
-    iroh-ssh version 0.2.9
-    https://github.com/rustonbsd/iroh-ssh
+    Your pigeons endpoint id: 38b7dc10df96005255c3beaeaeef6cfebd88344aa8c85e1dbfc1ad5e50f372ac
+    pigeons version 0.2.9
+    https://github.com/rustonbsd/pigeons
 
-    Your server iroh-ssh endpoint id:
-      iroh-ssh my-user@38b7dc10df96005255c3beaeaeef6cfebd88344aa8c85e1dbfc1ad5e50f372ac
+    Your server pigeons endpoint id:
+      pigeons my-user@38b7dc10df96005255c3beaeaeef6cfebd88344aa8c85e1dbfc1ad5e50f372ac
 
-    Your service iroh-ssh endpoint id:
-      iroh-ssh my-user@4fjeeiui4jdm96005255c3begj389xk3aeaeef6cfebd88344aa8c85e1dbfc1ad
+    Your service pigeons endpoint id:
+      pigeons my-user@4fjeeiui4jdm96005255c3begj389xk3aeaeef6cfebd88344aa8c85e1dbfc1ad
 ```
 
 ---
@@ -157,20 +152,20 @@ Display its Endpoint ID and share it to allow connection
 
 ```
 ┌─────────────┐          ┌─────────────────┐          ┌─────────────┐
-│     SSH     │─────────▶│  QUIC Tunnel    │─────────▶│  iroh-ssh   │
+│     SSH     │─────────▶│  QUIC Tunnel    │─────────▶│  pigeons   │
 │   Client    │          │  (P2P Network)  │          │   server    │
 └─────────────┘          └─────────────────┘          └─────────────┘
       │                           ▲                            │
       │                           │                            │
       ▼                           │                            ▼
 ┌─────────────┐          ┌─────────────┐          ┌──────────────────┐
-│ ProxyCommand│          │  iroh-ssh   │          │   SSH Server     │
-│ iroh-ssh    │──────────│    proxy    │          │ localhost:22     │
+│ ProxyCommand│          │  pigeons   │          │   SSH Server     │
+│ pigeons    │──────────│    proxy    │          │ localhost:22     │
 │ proxy %h    │          │             │          └──────────────────┘
 └─────────────┘          └─────────────┘
 ```
 
-1. **SSH Client**: Invokes `iroh-ssh proxy` via SSH's ProxyCommand
+1. **SSH Client**: Invokes `pigeons proxy` via SSH's ProxyCommand
 2. **Proxy**: Establishes QUIC connection through Iroh's P2P network (automatic NAT traversal)
 3. **Server**: Accepts connection and proxies to local SSH daemon (port 22)
 4. **Authentication**: Standard SSH security end-to-end over encrypted QUIC tunnel
@@ -189,20 +184,20 @@ Display its Endpoint ID and share it to allow connection
 
 ```bash
 # Get your Endpoint ID and info
-> iroh-ssh info
+> pigeons info
 
 # Server modes
-> iroh-ssh server --persist          # Interactive mode, e.g. use tmux (default SSH port 22)
-> iroh-ssh server --ssh-port 2222    # Custom SSH port (using ephemeral keys)
+> pigeons server --persist          # Interactive mode, e.g. use tmux (default SSH port 22)
+> pigeons server --ssh-port 2222    # Custom SSH port (using ephemeral keys)
 
 # Service mode
-> iroh-ssh service install                   # Background daemon (linux and windows only, default port 22)
-> iroh-ssh service install --ssh-port 2222   # Background daemon with custom SSH port
-> iroh-ssh service uninstall                 # Uninstall service
+> pigeons service install                   # Background daemon (linux and windows only, default port 22)
+> pigeons service install --ssh-port 2222   # Background daemon with custom SSH port
+> pigeons service uninstall                 # Uninstall service
 
 # Client connection
-> iroh-ssh user@<ENDPOINT_ID>                    # Connect to remote server
-> iroh-ssh connect user@<ENDPOINT_ID>            # Explicit connect command, works with all standard ssh params and flags
+> pigeons user@<ENDPOINT_ID>                    # Connect to remote server
+> pigeons connect user@<ENDPOINT_ID>            # Explicit connect command, works with all standard ssh params and flags
 ```
 
 ## Security Model

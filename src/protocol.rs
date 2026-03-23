@@ -6,6 +6,16 @@ pub(crate) struct PigeonsProtocol {
     ssh_port: u16,
 }
 
+impl PigeonsProtocol {
+    pub const ALPN: &[u8] = b"/pigeons/0";
+
+    /// create a new pigeons "home" that will forward incoming connections from
+    /// a bound endpoint to the given local ssh server port
+    pub fn new(ssh_port: u16) -> Self {
+        Self { ssh_port }
+    }
+}
+
 impl ProtocolHandler for PigeonsProtocol {
     async fn accept(&self, connection: Connection) -> Result<(), iroh::protocol::AcceptError> {
         let endpoint_id = connection.remote_id();
@@ -47,15 +57,5 @@ impl ProtocolHandler for PigeonsProtocol {
         }
 
         Ok(())
-    }
-}
-
-impl PigeonsProtocol {
-    pub const ALPN: &[u8] = b"/pigeons/0";
-
-    /// create a new pigeons "home" that will forward incoming connections from
-    /// a bound endpoint to the given local ssh server port
-    pub fn new(ssh_port: u16) -> Self {
-        Self { ssh_port }
     }
 }

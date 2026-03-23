@@ -1,17 +1,17 @@
 # Custom Relay Setup
 
-This version of `iroh-ssh` is built on iroh version `0.94`. If you want to use a custom relay server as seen in the examples below, you need to use the matching `iroh-relay` of version `0.94`. See [setup relay server](#setup-relay-server) for more information on how to set up a relay server.
+This version of `pigeons` is built on iroh version `0.94`. If you want to use a custom relay server as seen in the examples below, you need to use the matching `iroh-relay` of version `0.94`. See [setup relay server](#setup-relay-server) for more information on how to set up a relay server.
 
 ## Usage --relay-url
 
-To connect an `iroh-ssh` client to a server using the `--relay-url <URL>` option, the `iroh-ssh server` must also use the same `--relay-url <URL>` to guarantee connection.
+To connect an `pigeons` client to a server using the `--relay-url <URL>` option, the `pigeons server` must also use the same `--relay-url <URL>` to guarantee connection.
 
 ```bash
-> iroh-ssh server --relay-url <URL>
+> pigeons server --relay-url <URL>
 ```
 
 ```bash
-> iroh-ssh my-user@110017f0d23788158e4d32c0e213ec38b95cf4e9a0a8cbcb10d6f9c578dd7863 --relay-url <URL>
+> pigeons my-user@110017f0d23788158e4d32c0e213ec38b95cf4e9a0a8cbcb10d6f9c578dd7863 --relay-url <URL>
 ``` 
 
 ## Setup Relay Server
