@@ -8,12 +8,18 @@ pub struct MacosService;
 impl Service for MacosService {
     async fn install(service_params: ServiceParams) -> anyhow::Result<()> {
         let path = MacosService::init_install_script(service_params)?;
+        tracing::debug!("running install script: {}", path.display());
 
-        runas::Command::new("sh")
-            .arg(path)
-            .show(false)
-            .force_prompt(false)
+        let status = std::process::Command::new("sh")
+            .arg(&path)
+            .stdin(std::process::Stdio::inherit())
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
             .status()?;
+
+        if !status.success() {
+            anyhow::bail!("install script failed with exit code: {}", status);
+        }
 
         Ok(())
     }
@@ -24,12 +30,18 @@ impl Service for MacosService {
 
     async fn uninstall() -> anyhow::Result<()> {
         let path = MacosService::init_uninstall_script()?;
+        tracing::debug!("running uninstall script: {}", path.display());
 
-        runas::Command::new("sh")
-            .arg(path)
-            .show(false)
-            .force_prompt(false)
+        let status = std::process::Command::new("sh")
+            .arg(&path)
+            .stdin(std::process::Stdio::inherit())
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
             .status()?;
+
+        if !status.success() {
+            anyhow::bail!("uninstall script failed with exit code: {}", status);
+        }
 
         Ok(())
     }

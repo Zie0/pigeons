@@ -1,3 +1,5 @@
+set -ex
+
 if ! /usr/bin/nc -z 127.0.0.1 [SSHPORT] 2>/dev/null; then
     echo "Warning: no sshd detected on port [SSHPORT]. Pigeons won't be able to deliver connections."
     echo "  Enable Remote Login in System Settings to start sshd."
@@ -36,8 +38,7 @@ cat > "$PLIST_PATH" <<'PLIST_EOF'
 </plist>
 PLIST_EOF
 
-launchctl list | grep -q computer.pigeons.daemon
-if [ $? -eq 0 ]; then
+if launchctl list 2>/dev/null | grep -q computer.pigeons.daemon; then
     # Already running; bootout and re-bootstrap to pick up any config changes
     launchctl bootout system/computer.pigeons.daemon 2>/dev/null || launchctl unload "$PLIST_PATH" 2>/dev/null
 fi
@@ -49,5 +50,5 @@ launchctl bootstrap system "$PLIST_PATH" 2>/dev/null || launchctl load "$PLIST_P
 # to a world-readable location so unprivileged users can run 'pigeons status'
 sleep 2
 mkdir -p /etc/pigeons
-cp /var/root/.ssh/pigeons_ed25519.pub /etc/pigeons/endpoint_id 2>/dev/null
-chmod 644 /etc/pigeons/endpoint_id 2>/dev/null
+cp /var/root/.ssh/pigeons_ed25519.pub /etc/pigeons/endpoint_id 2>/dev/null || true
+chmod 644 /etc/pigeons/endpoint_id 2>/dev/null || true
