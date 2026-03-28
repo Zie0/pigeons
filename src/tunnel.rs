@@ -7,6 +7,7 @@ use iroh::{
     protocol::Router,
 };
 use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
 };
 
@@ -93,7 +94,10 @@ impl TunnelBuilder {
             ssh::ensure_local_ssh_server_exists(home.ssh_port).await?;
             let handler = PigeonsProtocol::new(home.ssh_port);
             router = router.accept(PigeonsProtocol::ALPN, handler);
-            tracing::info!("roost accepting connections on ALPN {:?}", std::str::from_utf8(PigeonsProtocol::ALPN));
+            tracing::info!(
+                "roost accepting connections on ALPN {:?}",
+                std::str::from_utf8(PigeonsProtocol::ALPN)
+            );
         }
 
         let router = router.spawn();
@@ -146,8 +150,8 @@ impl Tunnel {
         let mut stdin = tokio::io::stdin();
         let mut stdout = tokio::io::stdout();
 
-        let stdin_to_iroh = tokio::io::copy(&mut stdin, &mut iroh_send);
-        let iroh_to_stdout = tokio::io::copy(&mut iroh_recv, &mut stdout);
+        let stdin_to_iroh = copy_flush(&mut stdin, &mut iroh_send);
+        let iroh_to_stdout = copy_flush(&mut iroh_recv, &mut stdout);
 
         tokio::select! {
             result = stdin_to_iroh => { result?; }
@@ -192,18 +196,19 @@ async fn prepare_pigeon(
 
 /// takes a TCP stream & adds it
 async fn bridge_connection(
-    mut tcp_stream: tokio::net::TcpStream,
+    tcp_stream: tokio::net::TcpStream,
     endpoint: &Endpoint,
     remote_id: EndpointId,
 ) -> anyhow::Result<()> {
+    tcp_stream.set_nodelay(true)?;
     tracing::debug!("bridge_connection: connecting to {remote_id}");
     let conn = endpoint.connect(remote_id, PigeonsProtocol::ALPN).await?;
     tracing::debug!("bridge_connection: connected, opening bi stream");
     let (mut iroh_send, mut iroh_recv) = conn.open_bi().await?;
-    let (mut tcp_read, mut tcp_write) = tcp_stream.split();
+    let (mut tcp_read, mut tcp_write) = tcp_stream.into_split();
 
-    let tcp_to_iroh = async { tokio::io::copy(&mut tcp_read, &mut iroh_send).await };
-    let iroh_to_tcp = async { tokio::io::copy(&mut iroh_recv, &mut tcp_write).await };
+    let tcp_to_iroh = copy_flush(&mut tcp_read, &mut iroh_send);
+    let iroh_to_tcp = copy_flush(&mut iroh_recv, &mut tcp_write);
 
     tokio::select! {
         result = tcp_to_iroh => {
@@ -215,4 +220,26 @@ async fn bridge_connection(
     }
 
     Ok(())
+}
+
+/// Copy data from reader to writer, flushing after every write.
+/// Unlike `tokio::io::copy` (which buffers 8KB before flushing),
+/// this ensures interactive data like SSH keystrokes are forwarded
+/// immediately.
+pub(crate) async fn copy_flush<R, W>(reader: &mut R, writer: &mut W) -> std::io::Result<u64>
+where
+    R: tokio::io::AsyncRead + Unpin,
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    let mut buf = [0u8; 8 * 1024];
+    let mut total = 0u64;
+    loop {
+        let n = reader.read(&mut buf).await?;
+        if n == 0 {
+            return Ok(total);
+        }
+        writer.write_all(&buf[..n]).await?;
+        writer.flush().await?;
+        total += n as u64;
+    }
 }

@@ -1,6 +1,8 @@
 use iroh::{endpoint::Connection, protocol::ProtocolHandler};
 use tokio::net::TcpStream;
 
+use crate::tunnel::copy_flush;
+
 #[derive(Debug)]
 pub(crate) struct PigeonsProtocol {
     ssh_port: u16,
@@ -25,15 +27,14 @@ impl ProtocolHandler for PigeonsProtocol {
                 tracing::info!("pigeon arrived from {endpoint_id}");
 
                 match TcpStream::connect(format!("127.0.0.1:{}", self.ssh_port)).await {
-                    Ok(mut ssh_stream) => {
+                    Ok(ssh_stream) => {
                         tracing::info!("delivering to local sshd on port {}", self.ssh_port);
+                        ssh_stream.set_nodelay(true).ok();
 
-                        let (mut local_read, mut local_write) = ssh_stream.split();
+                        let (mut local_read, mut local_write) = ssh_stream.into_split();
 
-                        let a_to_b =
-                            async move { tokio::io::copy(&mut local_read, &mut iroh_send).await };
-                        let b_to_a =
-                            async move { tokio::io::copy(&mut iroh_recv, &mut local_write).await };
+                        let a_to_b = copy_flush(&mut local_read, &mut iroh_send);
+                        let b_to_a = copy_flush(&mut iroh_recv, &mut local_write);
 
                         tokio::select! {
                             result = a_to_b => {
