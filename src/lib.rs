@@ -3,7 +3,7 @@ mod service;
 mod ssh;
 mod tunnel;
 
-pub use service::{Service, ServiceParams, install as install_service, service_endpoint_id, uninstall as uninstall_service};
+pub use service::{Service, ServiceParams, install as install_service, resolve_binary_path, service_endpoint_id, uninstall as uninstall_service};
 pub use ssh::{
     SshConfigPigeonEntry, add_tunnel_host, dot_ssh_secret_key, home_ssh_dir, list_tunnel_hosts,
     remove_tunnel_host,

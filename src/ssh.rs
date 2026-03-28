@@ -91,6 +91,7 @@ impl fmt::Display for SshConfigPigeonEntry {
 
 /// Add or update a pigeon host entry in ~/.ssh/config using ProxyCommand
 pub fn add_tunnel_host(name: &str, endpoint_id: &str) -> anyhow::Result<()> {
+    tracing::debug!("adding tunnel host name={name} endpoint={endpoint_id}");
     let config_path = ssh_config_path()?;
 
     if let Some(parent) = config_path.parent() {
@@ -128,6 +129,7 @@ pub fn add_tunnel_host(name: &str, endpoint_id: &str) -> anyhow::Result<()> {
 
 /// Remove a pigeon host entry from ~/.ssh/config
 pub fn remove_tunnel_host(name: &str) -> anyhow::Result<()> {
+    tracing::debug!("removing tunnel host name={name}");
     let config_path = ssh_config_path()?;
 
     if !config_path.exists() {
@@ -255,8 +257,12 @@ fn atomic_write(path: &PathBuf, content: &str) -> anyhow::Result<()> {
 }
 
 pub(crate) async fn ensure_local_ssh_server_exists(ssh_port: u16) -> anyhow::Result<()> {
+    tracing::debug!("probing sshd on port {ssh_port}");
     match TcpStream::connect(format!("127.0.0.1:{}", ssh_port)).await {
-        Ok(_) => Ok(()),
+        Ok(_) => {
+            tracing::debug!("sshd found on port {ssh_port}");
+            Ok(())
+        }
         Err(_) => Err(anyhow::anyhow!(format!(
             "no sshd detected on port {ssh_port}. Make sure sshd is running before sending pigeons to this roost",
         ))),

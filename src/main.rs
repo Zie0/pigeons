@@ -98,6 +98,11 @@ pub struct RemoveArgs {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_writer(std::io::stderr)
+        .init();
+
     let cli = Cli::parse();
 
     match cli.cmd {
@@ -162,17 +167,27 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Cmd::Service { op } => {
-            if !self_runas::is_elevated() {
-                self_runas::admin()?;
-                return Ok(());
-            }
             match op {
                 ServiceCmd::Install { ssh_port, relay_url } => {
-                    pigeons::install_service(pigeons::ServiceParams { ssh_port, relay_url }).await?;
+                    // Resolve and validate the binary path *before* elevating,
+                    // so the user sees any error in their own terminal.
+                    let binary_path = pigeons::resolve_binary_path()?;
+
+                    if !self_runas::is_elevated() {
+                        self_runas::admin()?;
+                        return Ok(());
+                    }
+
+                    pigeons::install_service(pigeons::ServiceParams { ssh_port, relay_url, binary_path }).await?;
                     println!("Pigeons service installed.");
                     Ok(())
                 }
                 ServiceCmd::Uninstall => {
+                    if !self_runas::is_elevated() {
+                        self_runas::admin()?;
+                        return Ok(());
+                    }
+
                     pigeons::uninstall_service().await?;
                     println!("Pigeons service uninstalled.");
                     Ok(())

@@ -10,16 +10,12 @@ Description=pigeons
 [Service]
 Type=simple
 WorkingDirectory=~
-ExecStart=/bin/bash -c 'pigeons roost --ssh-port [SSHPORT][RELAYARGS]'
+ExecStart=/bin/bash -c '[BINARYPATH] roost --ssh-port [SSHPORT][RELAYARGS]'
 Restart=on-failure
 RestartSec=3s
 
 [Install]
 WantedBy=multi-user.target" > /etc/systemd/system/pigeons.service
-
-if [ "$(realpath '[BINARYPATH]')" != "$(realpath /usr/local/bin/pigeons 2>/dev/null)" ]; then
-    cp [BINARYPATH] /usr/local/bin/pigeons
-fi
 
 systemctl is-active pigeons.service
 if [ $? -eq 0 ]; then

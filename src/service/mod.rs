@@ -17,6 +17,39 @@ pub(crate) use crate::service::windows::WindowsService;
 pub struct ServiceParams {
     pub ssh_port: u16,
     pub relay_url: Vec<String>,
+    pub binary_path: std::path::PathBuf,
+}
+
+/// Sensible directories for a daemon binary. If the resolved binary path
+/// isn't under one of these prefixes we warn and bail.
+const SENSIBLE_PREFIXES: &[&str] = &[
+    "/usr/local/bin",
+    "/usr/bin",
+    "/opt/homebrew/bin",
+    "/opt/",
+    "/usr/local/sbin",
+    "/usr/sbin",
+];
+
+/// Discover the absolute path of the currently-running pigeons binary and
+/// validate that it lives in a location suitable for a system daemon.
+pub fn resolve_binary_path() -> anyhow::Result<std::path::PathBuf> {
+    let exe = std::env::current_exe()?;
+    let resolved = exe.canonicalize()?;
+    let path_str = resolved
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("binary path is not valid UTF-8: {resolved:?}"))?;
+
+    if !SENSIBLE_PREFIXES.iter().any(|pfx| path_str.starts_with(pfx)) {
+        anyhow::bail!(
+            "pigeons binary is at {path_str}, which doesn't look like a permanent install location.\n\
+             Install pigeons to one of the standard paths ({}) before running service install.",
+            SENSIBLE_PREFIXES.join(", ")
+        );
+    }
+
+    tracing::info!("resolved pigeons binary path: {path_str}");
+    Ok(resolved)
 }
 
 pub trait Service {
@@ -28,6 +61,7 @@ pub trait Service {
 }
 
 pub async fn install(service_params: ServiceParams) -> anyhow::Result<()> {
+    tracing::info!("installing service for os={}, ssh_port={}", std::env::consts::OS, service_params.ssh_port);
     match std::env::consts::OS {
         #[cfg(target_os = "linux")]
         "linux" => LinuxService::install(service_params).await,

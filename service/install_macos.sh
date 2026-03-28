@@ -17,7 +17,7 @@ cat > "$PLIST_PATH" <<'PLIST_EOF'
     <array>
         <string>/bin/bash</string>
         <string>-c</string>
-        <string>pigeons roost --ssh-port [SSHPORT][RELAYARGS]</string>
+        <string>[BINARYPATH] roost --ssh-port [SSHPORT][RELAYARGS]</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
@@ -35,10 +35,6 @@ cat > "$PLIST_PATH" <<'PLIST_EOF'
 </dict>
 </plist>
 PLIST_EOF
-
-if [ "$(realpath '[BINARYPATH]')" != "$(realpath /usr/local/bin/pigeons 2>/dev/null)" ]; then
-    cp [BINARYPATH] /usr/local/bin/pigeons
-fi
 
 launchctl list | grep -q computer.pigeons.daemon
 if [ $? -eq 0 ]; then

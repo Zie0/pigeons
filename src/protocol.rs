@@ -22,11 +22,11 @@ impl ProtocolHandler for PigeonsProtocol {
 
         match connection.accept_bi().await {
             Ok((mut iroh_send, mut iroh_recv)) => {
-                println!("Pigeon arrived from {endpoint_id}");
+                tracing::info!("pigeon arrived from {endpoint_id}");
 
                 match TcpStream::connect(format!("127.0.0.1:{}", self.ssh_port)).await {
                     Ok(mut ssh_stream) => {
-                        println!("Delivering to local sshd on port {}", self.ssh_port);
+                        tracing::info!("delivering to local sshd on port {}", self.ssh_port);
 
                         let (mut local_read, mut local_write) = ssh_stream.split();
 
@@ -38,21 +38,21 @@ impl ProtocolHandler for PigeonsProtocol {
                         tokio::select! {
                             result = a_to_b => {
                                 let _ = result;
-                                println!("Pigeon from {endpoint_id} returned home.");
+                                tracing::info!("pigeon from {endpoint_id} returned home");
                             },
                             result = b_to_a => {
                                 let _ = result;
-                                println!("Pigeon from {endpoint_id} returned home.");
+                                tracing::info!("pigeon from {endpoint_id} returned home");
                             },
                         };
                     }
                     Err(e) => {
-                        println!("Pigeon couldn't reach sshd: {e}");
+                        tracing::error!("pigeon couldn't reach sshd: {e}");
                     }
                 }
             }
             Err(e) => {
-                println!("Pigeon dropped its message: {e}");
+                tracing::error!("pigeon dropped its message: {e}");
             }
         }
 

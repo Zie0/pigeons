@@ -58,9 +58,9 @@ impl MacosService {
                 .replace("[RELAYARGS]", &relay_args)
                 .replace(
                     "[BINARYPATH]",
-                    std::env::current_exe()?
+                    service_params.binary_path
                         .to_str()
-                        .ok_or_else(|| anyhow::anyhow!("failed to get current executable path"))?,
+                        .ok_or_else(|| anyhow::anyhow!("binary path is not valid UTF-8"))?,
                 )
                 .as_bytes(),
         )?;
