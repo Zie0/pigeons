@@ -106,9 +106,32 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.cmd {
-        Cmd::Roost(_args) => {
-            let tunnel = pigeons::Tunnel::builder_ephemeral().build().await?;
+        Cmd::Roost(args) => {
+            let ssh_dir = pigeons::home_ssh_dir()?;
+            let mut builder = if args.ephemeral {
+                pigeons::Tunnel::builder_ephemeral()
+            } else {
+                pigeons::Tunnel::builder_from_ssh_dir(ssh_dir)?
+            };
+            builder.roost = Some(pigeons::RoostConfig { ssh_port: args.ssh_port });
+            let tunnel = builder.build().await?;
             let id = tunnel.endpoint().id();
+
+            // If running as root (service mode), publish the endpoint ID
+            // so unprivileged users can read it via 'pigeons status'
+            if self_runas::is_elevated() {
+                let dir = std::path::Path::new("/etc/pigeons");
+                std::fs::create_dir_all(dir)?;
+                std::fs::write(dir.join("endpoint_id"), id.to_string().as_bytes())?;
+                // world-readable
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    std::fs::set_permissions(dir.join("endpoint_id"),
+                        std::fs::Permissions::from_mode(0o644))?;
+                }
+            }
+
             println!("roost is running! id: {}", id);
             tokio::signal::ctrl_c().await?;
             tunnel.close().await?;

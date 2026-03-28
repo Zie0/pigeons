@@ -1,4 +1,4 @@
-set -ex
+set -e
 
 if ! /usr/bin/nc -z 127.0.0.1 [SSHPORT] 2>/dev/null; then
     echo "Warning: no sshd detected on port [SSHPORT]. Pigeons won't be able to deliver connections."
@@ -28,6 +28,11 @@ cat > "$PLIST_PATH" <<'PLIST_EOF'
         <key>SuccessfulExit</key>
         <false/>
     </dict>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>RUST_LOG</key>
+        <string>info</string>
+    </dict>
     <key>WorkingDirectory</key>
     <string>/var/root</string>
     <key>StandardOutPath</key>
@@ -38,17 +43,13 @@ cat > "$PLIST_PATH" <<'PLIST_EOF'
 </plist>
 PLIST_EOF
 
+echo "starting pigeons..."
 if launchctl list 2>/dev/null | grep -q computer.pigeons.daemon; then
-    # Already running; bootout and re-bootstrap to pick up any config changes
-    launchctl bootout system/computer.pigeons.daemon 2>/dev/null || launchctl unload "$PLIST_PATH" 2>/dev/null
+    # Already running; bootout first so we can re-bootstrap with new config
+    launchctl bootout system/computer.pigeons.daemon || true
+    sleep 1
 fi
 
-# bootstrap registers AND starts the service (modern launchctl)
-launchctl bootstrap system "$PLIST_PATH" 2>/dev/null || launchctl load "$PLIST_PATH"
+launchctl bootstrap system "$PLIST_PATH"
 
-# Wait for the service to generate keys, then copy the public key
-# to a world-readable location so unprivileged users can run 'pigeons status'
-sleep 2
-mkdir -p /etc/pigeons
-cp /var/root/.ssh/pigeons_ed25519.pub /etc/pigeons/endpoint_id 2>/dev/null || true
-chmod 644 /etc/pigeons/endpoint_id 2>/dev/null || true
+echo "done"
