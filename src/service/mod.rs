@@ -51,18 +51,14 @@ pub async fn uninstall() -> anyhow::Result<()> {
     }
 }
 
-/// Check whether the pigeons service is installed on this system
-pub fn is_installed() -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        std::path::Path::new("/Library/LaunchDaemons/computer.pigeons.daemon.plist").exists()
-    }
-    #[cfg(target_os = "linux")]
-    {
-        std::path::Path::new("/etc/systemd/system/pigeons.service").exists()
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-    {
-        false
-    }
+/// Try to read the endpoint ID of the installed pigeons service.
+/// The install script copies the public key to /etc/pigeons/endpoint_id
+/// so unprivileged users can read it.
+/// Returns Some(endpoint_id) if found, None otherwise.
+pub fn service_endpoint_id() -> Option<iroh::EndpointId> {
+    let pub_key_bytes = std::fs::read("/etc/pigeons/endpoint_id").ok()?;
+    let decoded = z32::decode(&pub_key_bytes).ok()?;
+    let bytes: [u8; 32] = decoded.as_slice().try_into().ok()?;
+    let public_key = iroh::PublicKey::from_bytes(&bytes).ok()?;
+    Some(public_key.into())
 }

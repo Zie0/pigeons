@@ -53,15 +53,6 @@ impl Default for TunnelBuilder {
 }
 
 impl TunnelBuilder {
-    /// read tunnel configuration from the provided ssh directory:
-    /// * reads a vec of PigeonConfig from the ssh_config file
-    /// * checks for pigeons_ed211519 key, uses it if present
-    // pub async fn ssh_dir(&mut self, ssh_dir: PathBuf) -> Result<Self> {
-    //     // TODO - read pigeons from ProxyCommand
-    //     // self.pigeons =
-    //     self
-    // }
-
     fn new(secret_key: SecretKey) -> Self {
         TunnelBuilder {
             roost: None,
@@ -101,14 +92,6 @@ impl TunnelBuilder {
         }
 
         let router = router.spawn();
-
-        // let mut pigeon_tasks = JoinSet::new();
-        // for cfg in &self.pigeons {
-        //     let bind_addr = format!("127.0.0.1:{}", cfg.bind_port.unwrap_or(0));
-        //     let listener = TcpListener::bind(&bind_addr).await?;
-        //     let pigeon_fut = prepare_pigeon(router.endpoint().clone(), listener, cfg.clone());
-        //     pigeon_tasks.spawn(pigeon_fut);
-        // }
 
         Ok(Tunnel {
             router,

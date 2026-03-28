@@ -48,3 +48,10 @@ fi
 
 # bootstrap registers AND starts the service (modern launchctl)
 launchctl bootstrap system "$PLIST_PATH" 2>/dev/null || launchctl load "$PLIST_PATH"
+
+# Wait for the service to generate keys, then copy the public key
+# to a world-readable location so unprivileged users can run 'pigeons status'
+sleep 2
+mkdir -p /etc/pigeons
+cp /var/root/.ssh/pigeons_ed25519.pub /etc/pigeons/endpoint_id 2>/dev/null
+chmod 644 /etc/pigeons/endpoint_id 2>/dev/null

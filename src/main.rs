@@ -103,6 +103,8 @@ async fn main() -> anyhow::Result<()> {
     match cli.cmd {
         Cmd::Roost(_args) => {
             let tunnel = pigeons::Tunnel::builder_ephemeral().build().await?;
+            let id = tunnel.endpoint().id();
+            println!("roost is running! id: {}", id);
             tokio::signal::ctrl_c().await?;
             tunnel.close().await?;
             Ok(())
@@ -179,10 +181,22 @@ async fn main() -> anyhow::Result<()> {
         }
         Cmd::Status => {
             let routes = pigeons::list_tunnel_hosts()?;
-            let service_installed = pigeons::service_is_installed();
 
             println!("Pigeon routes: {}", routes.len());
-            println!("Service:       {}", if service_installed { "installed" } else { "not installed" });
+            match pigeons::service_endpoint_id() {
+                Some(id) => {
+                    println!("Service:       running");
+                    println!();
+                    println!("  Roost ID: {id}");
+                    println!();
+                    println!("  Connect with:");
+                    println!("    pigeons fly {id}");
+                    println!("    pigeons add --id {id} --name my-roost");
+                }
+                None => {
+                    println!("Service:       not installed");
+                }
+            }
             Ok(())
         }
     }
