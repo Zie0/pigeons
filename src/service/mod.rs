@@ -40,7 +40,10 @@ pub fn resolve_binary_path() -> anyhow::Result<std::path::PathBuf> {
         .to_str()
         .ok_or_else(|| anyhow::anyhow!("binary path is not valid UTF-8: {resolved:?}"))?;
 
-    if !SENSIBLE_PREFIXES.iter().any(|pfx| path_str.starts_with(pfx)) {
+    if !SENSIBLE_PREFIXES
+        .iter()
+        .any(|pfx| path_str.starts_with(pfx))
+    {
         anyhow::bail!(
             "pigeons binary is at {path_str}, which doesn't look like a permanent install location.\n\
              Install pigeons to one of the standard paths ({}) before running service install.",
@@ -61,7 +64,11 @@ pub trait Service {
 }
 
 pub async fn install(service_params: ServiceParams) -> anyhow::Result<()> {
-    tracing::info!("installing service for os={}, ssh_port={}", std::env::consts::OS, service_params.ssh_port);
+    tracing::info!(
+        "installing service for os={}, ssh_port={}",
+        std::env::consts::OS,
+        service_params.ssh_port
+    );
     match std::env::consts::OS {
         #[cfg(target_os = "linux")]
         "linux" => LinuxService::install(service_params).await,
@@ -92,4 +99,33 @@ pub async fn uninstall() -> anyhow::Result<()> {
 pub fn service_endpoint_id() -> Option<iroh::EndpointId> {
     let content = std::fs::read_to_string("/etc/pigeons/endpoint_id").ok()?;
     content.trim().parse().ok()
+}
+
+/// Print service logs to stdout.
+pub fn service_log() -> anyhow::Result<()> {
+    match std::env::consts::OS {
+        "macos" => {
+            let path = std::path::Path::new("/var/log/pigeons.log");
+            if !path.exists() {
+                anyhow::bail!(
+                    "no log file found at /var/log/pigeons.log — is the service installed?"
+                );
+            }
+            let status = std::process::Command::new("cat").arg(path).status()?;
+            if !status.success() {
+                anyhow::bail!("failed to read log file (try running with sudo)");
+            }
+            Ok(())
+        }
+        "linux" => {
+            let status = std::process::Command::new("journalctl")
+                .args(["-u", "pigeons.service", "--no-pager"])
+                .status()?;
+            if !status.success() {
+                anyhow::bail!("failed to read service journal");
+            }
+            Ok(())
+        }
+        other => anyhow::bail!("service log is not supported on {other}"),
+    }
 }

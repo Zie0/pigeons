@@ -32,8 +32,6 @@ pub enum Cmd {
         #[command(subcommand)]
         op: ServiceCmd,
     },
-    /// Show pigeons status
-    Status,
 }
 
 #[derive(Subcommand, Clone, Debug)]
@@ -48,6 +46,10 @@ pub enum ServiceCmd {
     },
     /// Tear down the coop (uninstall system service)
     Uninstall,
+    /// Show service status
+    Status,
+    /// Show service logs
+    Log,
 }
 
 #[derive(Args, Clone, Debug)]
@@ -113,7 +115,9 @@ async fn main() -> anyhow::Result<()> {
             } else {
                 pigeons::Tunnel::builder_from_ssh_dir(ssh_dir)?
             };
-            builder.roost = Some(pigeons::RoostConfig { ssh_port: args.ssh_port });
+            builder.roost = Some(pigeons::RoostConfig {
+                ssh_port: args.ssh_port,
+            });
             let tunnel = builder.build().await?;
             let id = tunnel.endpoint().id();
 
@@ -127,8 +131,10 @@ async fn main() -> anyhow::Result<()> {
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
-                    std::fs::set_permissions(dir.join("endpoint_id"),
-                        std::fs::Permissions::from_mode(0o644))?;
+                    std::fs::set_permissions(
+                        dir.join("endpoint_id"),
+                        std::fs::Permissions::from_mode(0o644),
+                    )?;
                 }
             }
 
@@ -191,7 +197,10 @@ async fn main() -> anyhow::Result<()> {
         }
         Cmd::Service { op } => {
             match op {
-                ServiceCmd::Install { ssh_port, relay_url } => {
+                ServiceCmd::Install {
+                    ssh_port,
+                    relay_url,
+                } => {
                     // Resolve and validate the binary path *before* elevating,
                     // so the user sees any error in their own terminal.
                     let binary_path = pigeons::resolve_binary_path()?;
@@ -201,7 +210,12 @@ async fn main() -> anyhow::Result<()> {
                         return Ok(());
                     }
 
-                    pigeons::install_service(pigeons::ServiceParams { ssh_port, relay_url, binary_path }).await?;
+                    pigeons::install_service(pigeons::ServiceParams {
+                        ssh_port,
+                        relay_url,
+                        binary_path,
+                    })
+                    .await?;
                     println!("Pigeons service installed.");
                     Ok(())
                 }
@@ -215,27 +229,28 @@ async fn main() -> anyhow::Result<()> {
                     println!("Pigeons service uninstalled.");
                     Ok(())
                 }
-            }
-        }
-        Cmd::Status => {
-            let routes = pigeons::list_tunnel_hosts()?;
-
-            println!("Pigeon routes: {}", routes.len());
-            match pigeons::service_endpoint_id() {
-                Some(id) => {
-                    println!("Service:       running");
-                    println!();
-                    println!("  Roost ID: {id}");
-                    println!();
-                    println!("  Connect with:");
-                    println!("    pigeons fly {id}");
-                    println!("    pigeons add --id {id} --name my-roost");
+                ServiceCmd::Status => {
+                    match pigeons::service_endpoint_id() {
+                        Some(id) => {
+                            println!("Service:       running");
+                            println!();
+                            println!("  Roost ID: {id}");
+                            println!();
+                            println!("  Connect with:");
+                            println!("    pigeons fly {id}");
+                            println!("    pigeons add --id {id} --name my-roost");
+                        }
+                        None => {
+                            println!("Service:       not installed");
+                        }
+                    }
+                    Ok(())
                 }
-                None => {
-                    println!("Service:       not installed");
+                ServiceCmd::Log => {
+                    pigeons::service_log()?;
+                    Ok(())
                 }
             }
-            Ok(())
         }
     }
 }
