@@ -523,7 +523,7 @@ mod service_runtime {
     };
 
     use super::WindowsService;
-    use crate::HomeArgs;
+    use crate::{RoostConfig, Tunnel};
 
     const STOP_EVENT_CODE: u32 = 130;
 
@@ -593,27 +593,55 @@ mod service_runtime {
             .map_err(|err| anyhow_to_win_error(err.into()))?;
 
         let server_handle = runtime.spawn(async move {
-            tracing::info!("Spawning server_mode task");
+            tracing::info!("spawning roost task");
 
-            let result = crate::api::home_mode(
-                HomeArgs {
-                    ssh_port,
-                    persist: true,
-                    relay_url,
-                },
-                true,
-            )
-            .await;
+            let ssh_dir = std::path::PathBuf::from(WindowsService::SERVICE_SSH_DIR);
+            let mut builder = match Tunnel::builder_from_ssh_dir(ssh_dir) {
+                Ok(b) => b,
+                Err(err) => {
+                    tracing::error!("failed to build tunnel from service ssh dir: {err:?}");
+                    return;
+                }
+            };
+            builder.roost = Some(RoostConfig { ssh_port });
+            for url in &relay_url {
+                if let Ok(parsed) = url.parse() {
+                    builder.relay_urls.push(parsed);
+                }
+            }
 
-            if let Err(err) = result {
-                tracing::error!("pigeons home task failed: {err:?}");
+            match builder.build().await {
+                Ok(tunnel) => {
+                    let id = tunnel.endpoint().id();
+                    tracing::info!("roost is running, id={id}");
+
+                    // Publish endpoint ID for `pigeons service status`
+                    let dir = std::path::Path::new(WindowsService::INSTALL_ROOT);
+                    if let Err(err) = std::fs::create_dir_all(dir) {
+                        tracing::warn!("failed to create {}: {err}", dir.display());
+                    }
+                    if let Err(err) =
+                        std::fs::write(dir.join("endpoint_id"), id.to_string().as_bytes())
+                    {
+                        tracing::warn!("failed to write endpoint_id: {err}");
+                    }
+
+                    // Block until shutdown signal
+                    shutdown_rx.recv().ok();
+                    if let Err(err) = tunnel.close().await {
+                        tracing::error!("error closing tunnel: {err:?}");
+                    }
+                }
+                Err(err) => {
+                    tracing::error!("failed to build tunnel: {err:?}");
+                }
             }
         });
 
-        shutdown_rx.recv().ok();
-
+        // If the roost task exits on its own (error path), we still need
+        // to clean up. If shutdown_rx fires inside the task, it will
+        // return naturally.
         runtime.block_on(async {
-            server_handle.abort();
             let _ = server_handle.await;
         });
 
