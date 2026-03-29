@@ -70,7 +70,8 @@ impl LinuxService {
                 .replace("[RELAYARGS]", &relay_args)
                 .replace(
                     "[BINARYPATH]",
-                    service_params.binary_path
+                    service_params
+                        .binary_path
                         .to_str()
                         .ok_or_else(|| anyhow::anyhow!("binary path is not valid UTF-8"))?,
                 )

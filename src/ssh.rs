@@ -200,11 +200,7 @@ pub fn list_tunnel_hosts() -> anyhow::Result<Vec<SshConfigPigeonEntry>> {
 fn parse_pigeons_proxy_command(cmd: &str) -> Option<String> {
     let parts: Vec<&str> = cmd.split_whitespace().collect();
     // expect: ["pigeons", "fly", "--stdio", "<endpoint_id>"]
-    if parts.len() >= 4
-        && parts[0] == "pigeons"
-        && parts[1] == "fly"
-        && parts[2] == "--stdio"
-    {
+    if parts.len() >= 4 && parts[0] == "pigeons" && parts[1] == "fly" && parts[2] == "--stdio" {
         Some(parts[3].to_string())
     } else {
         None
