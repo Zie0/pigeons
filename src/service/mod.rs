@@ -8,7 +8,10 @@ mod macos;
 #[cfg(target_os = "macos")]
 use crate::service::macos::MacosService;
 
+// Much of the windows module is invoked by the Windows Service Control Manager
+// rather than our own code paths, so the compiler sees it as dead code.
 #[cfg(target_os = "windows")]
+#[allow(dead_code)]
 mod windows;
 #[cfg(target_os = "windows")]
 pub(crate) use crate::service::windows::WindowsService;
