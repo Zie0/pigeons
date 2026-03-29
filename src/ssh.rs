@@ -177,10 +177,10 @@ pub fn list_tunnel_hosts() -> anyhow::Result<Vec<SshConfigPigeonEntry>> {
             }
             current_host = Some(rest.trim().to_string());
             current_endpoint = None;
-        } else if let Some(proxy_cmd) = trimmed.strip_prefix("ProxyCommand ") {
-            if let Some(endpoint_id) = parse_pigeons_proxy_command(proxy_cmd.trim()) {
-                current_endpoint = Some(endpoint_id);
-            }
+        } else if let Some(proxy_cmd) = trimmed.strip_prefix("ProxyCommand ")
+            && let Some(endpoint_id) = parse_pigeons_proxy_command(proxy_cmd.trim())
+        {
+            current_endpoint = Some(endpoint_id);
         }
     }
 
