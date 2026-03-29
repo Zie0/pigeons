@@ -23,38 +23,43 @@ pub struct ServiceParams {
     pub binary_path: std::path::PathBuf,
 }
 
-/// Sensible directories for a daemon binary. If the resolved binary path
-/// isn't under one of these prefixes we warn and bail.
-const SENSIBLE_PREFIXES: &[&str] = &[
-    "/usr/local/bin",
-    "/usr/bin",
-    "/opt/homebrew/bin",
-    "/opt/",
-    "/usr/local/sbin",
-    "/usr/sbin",
-];
-
 /// Discover the absolute path of the currently-running pigeons binary and
 /// validate that it lives in a location suitable for a system daemon.
+///
+/// On Unix, the binary must be in a standard system path. On Windows, the
+/// service installer copies the binary itself, so any path is accepted.
 pub fn resolve_binary_path() -> anyhow::Result<std::path::PathBuf> {
     let exe = std::env::current_exe()?;
     let resolved = exe.canonicalize()?;
-    let path_str = resolved
-        .to_str()
-        .ok_or_else(|| anyhow::anyhow!("binary path is not valid UTF-8: {resolved:?}"))?;
 
-    if !SENSIBLE_PREFIXES
-        .iter()
-        .any(|pfx| path_str.starts_with(pfx))
+    #[cfg(unix)]
     {
-        anyhow::bail!(
-            "pigeons binary is at {path_str}, which doesn't look like a permanent install location.\n\
-             Install pigeons to one of the standard paths ({}) before running service install.",
-            SENSIBLE_PREFIXES.join(", ")
-        );
+        const SENSIBLE_PREFIXES: &[&str] = &[
+            "/usr/local/bin",
+            "/usr/bin",
+            "/opt/homebrew/bin",
+            "/opt/",
+            "/usr/local/sbin",
+            "/usr/sbin",
+        ];
+
+        let path_str = resolved
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("binary path is not valid UTF-8: {resolved:?}"))?;
+
+        if !SENSIBLE_PREFIXES
+            .iter()
+            .any(|pfx| path_str.starts_with(pfx))
+        {
+            anyhow::bail!(
+                "pigeons binary is at {path_str}, which doesn't look like a permanent install location.\n\
+                 Install pigeons to one of the standard paths ({}) before running service install.",
+                SENSIBLE_PREFIXES.join(", ")
+            );
+        }
     }
 
-    tracing::info!("resolved pigeons binary path: {path_str}");
+    tracing::info!("resolved pigeons binary path: {}", resolved.display());
     Ok(resolved)
 }
 
@@ -100,7 +105,18 @@ pub async fn uninstall() -> anyhow::Result<()> {
 /// on startup when running as root (service mode).
 /// Returns Some(endpoint_id) if found, None otherwise.
 pub fn service_endpoint_id() -> Option<iroh::EndpointId> {
-    let content = std::fs::read_to_string("/etc/pigeons/endpoint_id").ok()?;
+    let content = match std::env::consts::OS {
+        "linux" => "/etc/pigeons/endpoint_id",
+        "macos" => "/etc/pigeons/endpoint_id",
+        "windows" => "C:\\ProgramData\\pigeons\\endpoint_id",
+        _ => {
+            tracing::warn!(
+                "service-level endpoint id is only supported on linux, macos, and windows"
+            );
+            return None;
+        }
+    };
+    let content = std::fs::read_to_string(content).ok()?;
     content.trim().parse().ok()
 }
 

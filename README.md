@@ -1,4 +1,3 @@
-[Español](README_es.md) [Portuguese](README_pt.md)
 # pigeons
 
 [![Crates.io](https://img.shields.io/crates/v/pigeons.svg)](https://crates.io/crates/pigeons)

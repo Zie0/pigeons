@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use clap::{ArgAction, Args, Parser, Subcommand};
-use iroh::EndpointId;
+use iroh::{EndpointId, RelayUrl};
 
 const RELAY_URL_HELP: &str = "use this relay server, replacing the defaults (repeatable)";
 
@@ -32,6 +32,8 @@ pub enum Cmd {
         #[command(subcommand)]
         op: ServiceCmd,
     },
+    /// Print the version number
+    Version,
 }
 
 #[derive(Subcommand, Clone, Debug)]
@@ -118,6 +120,12 @@ async fn main() -> anyhow::Result<()> {
             builder.roost = Some(pigeons::RoostConfig {
                 ssh_port: args.ssh_port,
             });
+            for url in &args.relay_url {
+                builder.relay_urls.push(
+                    RelayUrl::from_str(url)
+                        .map_err(|e| anyhow::anyhow!("invalid relay URL '{url}': {e}"))?,
+                );
+            }
             let tunnel = builder.build().await?;
             let id = tunnel.endpoint().id();
 
@@ -144,7 +152,14 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Cmd::Fly(args) => {
-            let tunnel = pigeons::Tunnel::builder_ephemeral().build().await?;
+            let mut builder = pigeons::Tunnel::builder_ephemeral();
+            for url in &args.relay_url {
+                builder.relay_urls.push(
+                    RelayUrl::from_str(url)
+                        .map_err(|e| anyhow::anyhow!("invalid relay URL '{url}': {e}"))?,
+                );
+            }
+            let tunnel = builder.build().await?;
             let remote_id = EndpointId::from_str(&args.public_key)?;
 
             if args.stdio {
@@ -171,7 +186,23 @@ async fn main() -> anyhow::Result<()> {
                 let id = &args.id;
                 format!("pigeon-{}", &id[..8.min(id.len())])
             });
-            pigeons::add_tunnel_host(&name, &args.id)?;
+            let name = name.trim();
+            if name.is_empty() {
+                anyhow::bail!("host name cannot be empty");
+            }
+            if name.chars().any(|c| c.is_whitespace()) {
+                anyhow::bail!("host name '{name}' cannot contain whitespace");
+            }
+            if !name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_'))
+            {
+                anyhow::bail!(
+                    "host name '{name}' contains invalid characters (use letters, digits, hyphens, dots, or underscores)"
+                );
+            }
+            let endpoint_id = EndpointId::from_str(&args.id)?;
+            pigeons::add_tunnel_host(name, &endpoint_id)?;
             println!("Pigeon route '{name}' added to ~/.ssh/config");
             println!();
             println!("  Fly with: ssh <user>@{name}");
@@ -193,6 +224,10 @@ async fn main() -> anyhow::Result<()> {
         Cmd::Remove(args) => {
             pigeons::remove_tunnel_host(&args.name)?;
             println!("Pigeon route '{}' removed.", args.name);
+            Ok(())
+        }
+        Cmd::Version => {
+            println!("pigeons v{}", env!("CARGO_PKG_VERSION"));
             Ok(())
         }
         Cmd::Service { op } => {

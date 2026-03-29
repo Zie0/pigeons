@@ -3,7 +3,7 @@ use std::{fmt, path::PathBuf};
 use anyhow::{Context, bail};
 use ed25519_dalek::SECRET_KEY_LENGTH;
 use homedir::my_home;
-use iroh::SecretKey;
+use iroh::{PublicKey, SecretKey};
 use tokio::net::TcpStream;
 
 pub fn home_ssh_dir() -> anyhow::Result<PathBuf> {
@@ -14,61 +14,31 @@ pub fn home_ssh_dir() -> anyhow::Result<PathBuf> {
     Ok(ssh_dir)
 }
 
-pub fn dot_ssh_secret_key(ssh_dir: PathBuf, persist: bool) -> anyhow::Result<SecretKey> {
-    tracing::info!("dot_ssh: Function called, persist={}", persist);
-
+pub fn dot_ssh_secret_key(ssh_dir: PathBuf) -> anyhow::Result<SecretKey> {
     let pub_key = ssh_dir.join("pigeons_ed25519.pub");
     let priv_key = ssh_dir.join("pigeons_ed25519");
 
-    tracing::debug!("dot_ssh: ssh_dir exists = {}", ssh_dir.exists());
-    tracing::debug!("dot_ssh: pub_key path = {}", pub_key.display());
-    tracing::debug!("dot_ssh: priv_key path = {}", priv_key.display());
+    if !ssh_dir.exists() {
+        tracing::info!("creating ssh directory: {}", ssh_dir.display());
+        std::fs::create_dir_all(&ssh_dir)?;
+    }
 
-    match (ssh_dir.exists(), persist) {
-        (false, false) => {
-            bail!(
-                "no .ssh folder found in {}, use --persist flag to create it",
-                ssh_dir.display()
-            )
-        }
-        (false, true) => {
-            std::fs::create_dir_all(&ssh_dir)?;
-            println!("[INFO] created .ssh folder: {}", ssh_dir.display());
-            dot_ssh_secret_key(ssh_dir, persist)
-        }
-        (true, true) => {
-            if pub_key.exists() && priv_key.exists() {
-                if let Ok(secret_key) = std::fs::read(&priv_key) {
-                    let mut sk_bytes = [0u8; SECRET_KEY_LENGTH];
-                    sk_bytes.copy_from_slice(z32::decode(secret_key.as_slice())?.as_slice());
-                    Ok(SecretKey::from_bytes(&sk_bytes))
-                } else {
-                    bail!("failed to read secret key from {}", priv_key.display())
-                }
-            } else {
-                let secret_key = SecretKey::generate(&mut rand::rng());
-                let public_key = secret_key.public();
+    if pub_key.exists() && priv_key.exists() {
+        tracing::debug!("loading existing keys from {}", ssh_dir.display());
+        let secret_key = std::fs::read(&priv_key)
+            .with_context(|| format!("failed to read secret key from {}", priv_key.display()))?;
+        let mut sk_bytes = [0u8; SECRET_KEY_LENGTH];
+        sk_bytes.copy_from_slice(z32::decode(secret_key.as_slice())?.as_slice());
+        Ok(SecretKey::from_bytes(&sk_bytes))
+    } else {
+        tracing::info!("generating new keys in {}", ssh_dir.display());
+        let secret_key = SecretKey::generate(&mut rand::rng());
+        let public_key = secret_key.public();
 
-                std::fs::write(&pub_key, z32::encode(public_key.as_bytes()))?;
-                std::fs::write(&priv_key, z32::encode(&secret_key.to_bytes()))?;
+        std::fs::write(&pub_key, z32::encode(public_key.as_bytes()))?;
+        std::fs::write(&priv_key, z32::encode(&secret_key.to_bytes()))?;
 
-                Ok(secret_key)
-            }
-        }
-        (true, false) => {
-            if pub_key.exists()
-                && priv_key.exists()
-                && let Ok(secret_key) = std::fs::read(&priv_key)
-            {
-                let mut sk_bytes = [0u8; SECRET_KEY_LENGTH];
-                sk_bytes.copy_from_slice(z32::decode(secret_key.as_slice())?.as_slice());
-                return Ok(SecretKey::from_bytes(&sk_bytes));
-            }
-            bail!(
-                "no pigeon keys found in {}, use --persist flag to create them",
-                ssh_dir.display()
-            )
-        }
+        Ok(secret_key)
     }
 }
 
@@ -90,7 +60,7 @@ impl fmt::Display for SshConfigPigeonEntry {
 }
 
 /// Add or update a pigeon host entry in ~/.ssh/config using ProxyCommand
-pub fn add_tunnel_host(name: &str, endpoint_id: &str) -> anyhow::Result<()> {
+pub fn add_tunnel_host(name: &str, endpoint_id: &PublicKey) -> anyhow::Result<()> {
     tracing::debug!("adding tunnel host name={name} endpoint={endpoint_id}");
     let config_path = ssh_config_path()?;
 
@@ -105,8 +75,8 @@ pub fn add_tunnel_host(name: &str, endpoint_id: &str) -> anyhow::Result<()> {
         String::new()
     };
 
-    // Remove existing entry for this name if present
-    let cleaned = remove_host_block(&existing, name);
+    // Remove existing entry for this name if present (ignore error — may not exist yet)
+    let cleaned = remove_host_block(&existing, name).unwrap_or_else(|_| existing.clone());
 
     let block = format!(
         "Host {name}\n\
@@ -139,10 +109,10 @@ pub fn remove_tunnel_host(name: &str) -> anyhow::Result<()> {
     let existing = std::fs::read_to_string(&config_path)
         .with_context(|| format!("failed to read {}", config_path.display()))?;
 
-    let cleaned = remove_host_block(&existing, name);
+    let cleaned = remove_host_block(&existing, name)?;
 
     if cleaned == existing {
-        bail!("no pigeon entry '{}' found in ssh config", name);
+        bail!("no host '{name}' found in ssh config");
     }
 
     atomic_write(&config_path, &cleaned)
@@ -209,10 +179,13 @@ fn parse_pigeons_proxy_command(cmd: &str) -> Option<String> {
 
 /// Remove a Host block by name from ssh config content.
 /// A Host block starts with "Host <name>" and ends at the next "Host " line
-/// or end of file.
-fn remove_host_block(content: &str, name: &str) -> String {
+/// or end of file. Returns an error if the block exists but does not contain
+/// a ProxyCommand that invokes pigeons.
+fn remove_host_block(content: &str, name: &str) -> anyhow::Result<String> {
     let mut result = String::new();
     let mut skipping = false;
+    let mut found = false;
+    let mut has_pigeons_proxy = false;
 
     for line in content.lines() {
         let trimmed = line.trim();
@@ -220,13 +193,21 @@ fn remove_host_block(content: &str, name: &str) -> String {
         if let Some(rest) = trimmed.strip_prefix("Host ") {
             if rest.trim() == name {
                 skipping = true;
+                found = true;
+                has_pigeons_proxy = false;
                 continue;
             } else {
+                if found && !has_pigeons_proxy {
+                    bail!("host '{name}' is not configured to use pigeons");
+                }
                 skipping = false;
             }
         }
 
         if skipping {
+            if trimmed.starts_with("ProxyCommand") && trimmed.contains("pigeons") {
+                has_pigeons_proxy = true;
+            }
             continue;
         }
 
@@ -234,12 +215,17 @@ fn remove_host_block(content: &str, name: &str) -> String {
         result.push('\n');
     }
 
+    // Check after the last block (no trailing Host line to trigger the check)
+    if found && !has_pigeons_proxy {
+        bail!("host '{name}' is not configured to use pigeons");
+    }
+
     // Trim trailing blank lines
     while result.ends_with("\n\n") {
         result.pop();
     }
 
-    result
+    Ok(result)
 }
 
 fn atomic_write(path: &PathBuf, content: &str) -> anyhow::Result<()> {

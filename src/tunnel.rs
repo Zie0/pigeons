@@ -123,7 +123,7 @@ impl Tunnel {
     }
 
     pub fn builder_from_ssh_dir(ssh_dir: PathBuf) -> Result<TunnelBuilder> {
-        let secret_key = dot_ssh_secret_key(ssh_dir, true)?;
+        let secret_key = dot_ssh_secret_key(ssh_dir)?;
         Ok(TunnelBuilder::new(secret_key))
     }
 
