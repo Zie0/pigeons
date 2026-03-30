@@ -5,24 +5,19 @@
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE)
 [![AUR](https://img.shields.io/aur/version/pigeons-git)](https://aur.archlinux.org/packages/pigeons-git)
 
-**SSH to any machine without ip, behind a NAT/firewall without port forwarding or VPN setup.**
+**SSH to any machine without an IP address, behind a NAT/firewall without port forwarding or VPN setup.**
 
 ```bash
-# on server
-> pigeons server --persist
+# on the server
+> pigeons roost
+roost is running! id: bb8e1a5661a6dfa9ae2dd978922f30f524f6fd8c99b3de021c53f292aae74330
 
-    Connect to this this machine:
-
-    pigeons my-user@bb8e1a5661a6dfa9ae2dd978922f30f524f6fd8c99b3de021c53f292aae74330
-
-
-# on client
-> pigeons user@bb8e1a5661a6dfa9ae2dd978922f30f524f6fd8c99b3de021c53f292aae74330
-# or with certificate
-> pigeons -i ~/.ssh/id_rsa_my_cert my-user@bb8e1a5661a6dfa9ae2dd978922f30f524f6fd8c99b3de021c53f292aae74330
+# on the client — add a route, then ssh as normal
+> pigeons add --id bb8e1a5661a6dfa9ae2dd978922f30f524f6fd8c99b3de021c53f292aae74330 --name my-server
+> ssh user@my-server
 ```
 
-**That's all it takes.** (requires ssh/(an ssh server) to be installed)
+**That's all it takes.** (requires ssh/sshd to be installed)
 
 ---
 
@@ -32,11 +27,10 @@
 cargo install pigeons
 ```
 
-Download and setup the binary automatically for your operating system from [GitHub Releases](https://github.com/rustonbsd/pigeons/releases):
+Download the binary for your operating system from [GitHub Releases](https://github.com/rustonbsd/pigeons/releases):
 
 Linux
 ```bash
-# Linux
 wget https://github.com/rustonbsd/pigeons/releases/download/0.2.9/pigeons.linux
 chmod +x pigeons.linux
 sudo mv pigeons.linux /usr/local/bin/pigeons
@@ -44,7 +38,6 @@ sudo mv pigeons.linux /usr/local/bin/pigeons
 
 macOS
 ```bash
-# macOS arm
 curl -LJO https://github.com/rustonbsd/pigeons/releases/download/0.2.9/pigeons.macos
 chmod +x pigeons.macos
 sudo mv pigeons.macos /usr/local/bin/pigeons
@@ -52,14 +45,13 @@ sudo mv pigeons.macos /usr/local/bin/pigeons
 
 Windows
 ```bash
-# Windows x86 64bit
 curl -L -o pigeons.exe https://github.com/rustonbsd/pigeons/releases/download/0.2.9/pigeons.exe
 mkdir %LOCALAPPDATA%\pigeons
 move pigeons.exe %LOCALAPPDATA%\pigeons\
 setx PATH "%PATH%;%LOCALAPPDATA%\pigeons"
 ```
 
-Verify that the installation was successful
+Verify that the installation was successful:
 ```bash
 # restart your terminal first
 > pigeons --help
@@ -67,82 +59,77 @@ Verify that the installation was successful
 
 ---
 
-## Client Connection
+## Quick Start
+
+### Server (roost)
+
+Start a roost to accept incoming connections. Keys are persisted by default so the endpoint ID stays the same across restarts:
 
 ```bash
-# Install for your distro (see above)
-# Connect from anywhere
-> pigeons my-user@38b7dc10df96005255c3beaeaeef6cfebd88344aa8c85e1dbfc1ad5e50f372ac
+> pigeons roost
+roost is running! id: bb8e1a5661a6dfa9ae2dd978922f30f524f6fd8c99b3de021c53f292aae74330
+```
+
+Use `--ephemeral` for a throwaway identity, or `--ssh-port` if sshd is on a non-standard port:
+
+```bash
+> pigeons roost --ephemeral --ssh-port 2222
+```
+
+### Client (fly)
+
+The easiest way to connect is to add a pigeon route, which creates an SSH config entry:
+
+```bash
+> pigeons add --id bb8e1a5661a6dfa9ae2dd978922f30f524f6fd8c99b3de021c53f292aae74330 --name my-server
+Pigeon route 'my-server' added to ~/.ssh/config
+
+  Fly with: ssh <user>@my-server
+```
+
+Then connect with standard ssh:
+
+```bash
+> ssh user@my-server
+```
+
+For a quick one-off connection without modifying ssh config:
+
+```bash
+> pigeons fly bb8e1a5661a6dfa9ae2dd978922f30f524f6fd8c99b3de021c53f292aae74330
 ```
 
 Works through any firewall, NAT, or private network. No configuration needed.
 
-![Connecting to remote server](/media/t-rec_connect.gif)
-<br>
+---
+
+## Service Mode
+
+Install pigeons as a system service for always-on access:
+
+```bash
+> pigeons service install                   # default SSH port 22
+> pigeons service install --ssh-port 2222   # custom SSH port
+> pigeons service status                    # check if the service is running
+> pigeons service log                       # view service logs
+> pigeons service uninstall                 # remove the service
+```
+
+Supported on Linux (systemd), macOS (launchd), and Windows (SCM).
 
 ---
 
-## Server Setup
+## Route Management
 
 ```bash
-# Install for your distro (see above)
-# (use with tmux or install as service on linux)
+# Add a route
+> pigeons add --id <ENDPOINT_ID> --name my-server
 
-> pigeons server --persist
+# List configured routes
+> pigeons list
 
-    Connect to this this machine:
-
-    pigeons my-user@bb8e1a5661a6dfa9ae2dd978922f30f524f6fd8c99b3de021c53f292aae74330
-
-    (using persistent keys in /home/my-user/.ssh/irohssh_ed25519)
-
-    Server listening for iroh connections...
-    client -> pigeons -> direct connect -> pigeons -> local ssh :22
-    Waiting for incoming connections...
-    Press Ctrl+C to exit
-
-```
-
-or use ephemeral keys
-
-```bash
-# Install for your distro (see above)
-# (use with tmux or install as service on linux)
-
-> pigeons server
-
-    Connect to this this machine:
-
-    pigeons my-user@bb8e1a5661a6dfa9ae2dd978922f30f524f6fd8c99b3de021c53f292aae74330
-
-    warning: (using ephemeral keys, run 'pigeons server --persist' to create persistent keys)
-
-    client -> pigeons -> direct connect -> pigeons -> local ssh :22
-    Waiting for incoming connections...
-    Press Ctrl+C to exit
-    Server listening for iroh connections...
-
-```
-
-Display its Endpoint ID and share it to allow connection
-
-![Starting server/Installing as service](/media/t-rec_server_service.gif)
-<br>
-
-## Connection information
-```bash
-// note: works only with persistent keys
-> pigeons info
-
-    Your pigeons endpoint id: 38b7dc10df96005255c3beaeaeef6cfebd88344aa8c85e1dbfc1ad5e50f372ac
-    pigeons version 0.2.9
-    https://github.com/rustonbsd/pigeons
-
-    Your server pigeons endpoint id:
-      pigeons my-user@38b7dc10df96005255c3beaeaeef6cfebd88344aa8c85e1dbfc1ad5e50f372ac
-
-    Your service pigeons endpoint id:
-      pigeons my-user@4fjeeiui4jdm96005255c3begj389xk3aeaeef6cfebd88344aa8c85e1dbfc1ad
+# Remove a route
+> pigeons remove my-server
 ```
 
 ---
@@ -151,75 +138,63 @@ Display its Endpoint ID and share it to allow connection
 
 ```
 ┌─────────────┐          ┌─────────────────┐          ┌─────────────┐
-│     SSH     │─────────▶│  QUIC Tunnel    │─────────▶│  pigeons   │
-│   Client    │          │  (P2P Network)  │          │   server    │
+│     SSH     │─────────▶│  QUIC Tunnel    │─────────▶│   pigeons   │
+│   Client    │          │  (P2P Network)  │          │    roost     │
 └─────────────┘          └─────────────────┘          └─────────────┘
       │                           ▲                            │
       │                           │                            │
       ▼                           │                            ▼
-┌─────────────┐          ┌─────────────┐          ┌──────────────────┐
-│ ProxyCommand│          │  pigeons   │          │   SSH Server     │
-│ pigeons    │──────────│    proxy    │          │ localhost:22     │
-│ proxy %h    │          │             │          └──────────────────┘
-└─────────────┘          └─────────────┘
+┌─────────────┐          ┌─────────────────┐          ┌──────────────────┐
+│ ProxyCommand│          │   pigeons fly   │          │   SSH Server     │
+│ pigeons fly │─────────▶│    --stdio      │          │  localhost:22    │
+│   --stdio   │          │                 │          └──────────────────┘
+└─────────────┘          └─────────────────┘
 ```
 
-1. **SSH Client**: Invokes `pigeons proxy` via SSH's ProxyCommand
-2. **Proxy**: Establishes QUIC connection through Iroh's P2P network (automatic NAT traversal)
-3. **Server**: Accepts connection and proxies to local SSH daemon (port 22)
-4. **Authentication**: Standard SSH security end-to-end over encrypted QUIC tunnel
+1. **SSH Client**: Invokes `pigeons fly --stdio` via SSH's ProxyCommand
+2. **Fly**: Establishes QUIC connection through Iroh's P2P network (automatic NAT traversal)
+3. **Roost**: Accepts connection and proxies to local SSH daemon (port 22)
+4. **Authentication**: Standard SSH authentication end-to-end over encrypted QUIC tunnel
 
 ## Use Cases
 
-- **VNC/RDP over SSH**: Securely access graphical desktops remotely
-- **VisualStudio SSH Extension**: Develop on remote machines seamlessly
 - **Remote servers**: Access cloud instances without exposing SSH ports
 - **Home networks**: Connect to devices behind router/firewall
 - **Corporate networks**: Bypass restrictive network policies
 - **IoT devices**: SSH to embedded systems on private networks
 - **Development**: Access staging servers and build machines
+- **VS Code Remote SSH**: Develop on remote machines seamlessly
+- **VNC/RDP over SSH**: Securely access graphical desktops remotely
 
 ## Commands
 
 ```bash
-# Get your Endpoint ID and info
-> pigeons info
+# Server
+> pigeons roost                             # start a roost (persistent keys by default)
+> pigeons roost --ephemeral                 # throwaway identity
+> pigeons roost --ssh-port 2222             # custom SSH port
 
-# Server modes
-> pigeons server --persist          # Interactive mode, e.g. use tmux (default SSH port 22)
-> pigeons server --ssh-port 2222    # Custom SSH port (using ephemeral keys)
+# Client
+> pigeons fly <ENDPOINT_ID>                 # quick connect (binds local port)
+> pigeons fly --stdio <ENDPOINT_ID>         # ProxyCommand mode (used by ssh config)
+> pigeons add --id <ID> --name <NAME>       # add SSH config entry
+> pigeons list                              # list pigeon routes
+> pigeons remove <NAME>                     # remove SSH config entry
 
-# Service mode
-> pigeons service install                   # Background daemon (linux and windows only, default port 22)
-> pigeons service install --ssh-port 2222   # Background daemon with custom SSH port
-> pigeons service uninstall                 # Uninstall service
-
-# Client connection
-> pigeons user@<ENDPOINT_ID>                    # Connect to remote server
-> pigeons connect user@<ENDPOINT_ID>            # Explicit connect command, works with all standard ssh params and flags
+# Service
+> pigeons service install                   # install as system service
+> pigeons service install --ssh-port 2222   # with custom SSH port
+> pigeons service status                    # check service status
+> pigeons service log                       # view service logs
+> pigeons service uninstall                 # remove service
 ```
 
 ## Security Model
 
 - **Endpoint ID access**: Anyone with the Endpoint ID can reach your SSH port
-- **SSH authentication**: SSH key file, certificate and password auth are supported
-- **Persistent keys**: Uses dedicated `.ssh/iroh_ssh_ed25519` keypair
+- **SSH authentication**: Standard SSH auth (keys, certificates, passwords) applies
+- **Persistent keys**: Uses dedicated `.ssh/pigeons_ed25519` keypair
 - **QUIC encryption**: Transport layer encryption between endpoints
-
-## Status
-
-- [x] Password authentication
-- [x] Persistent SSH keys
-- [x] Linux service mode
-- [x] Add howto gifs
-- [x] Add -p flag for persistence
-- [x] Windows service mode
-- [x] (almost) all ssh commands supported
-- [ ] MacOS service mode
-
-## Custom Relay Setup
-
-see: [CUSTOM_RELAY.md](CUSTOM_RELAY.md)
 
 ## License
 
