@@ -18,55 +18,61 @@ jobs:
       matrix:
         platform:
           - name: Linux x86_64 (musl)
-            runs-on: ubuntu-latest
+            runs-on: [self-hosted, linux, X64]
             target: x86_64-unknown-linux-musl
             ext: ""
           - name: Windows x86_64 (MSVC)
-            runs-on: windows-latest
+            runs-on: [self-hosted, windows, X64]
             target: x86_64-pc-windows-msvc
             ext: ".exe"
-          - name: macOS x86_64
-            runs-on: macos-latest
-            target: x86_64-apple-darwin
+          - name: macOS ARM64
+            runs-on: [self-hosted, macOS, ARM64]
+            target: aarch64-apple-darwin
             ext: ""
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@v2
+      - name: Install rust stable (unix)
+        if: runner.os != 'Windows'
+        uses: dtolnay/rust-toolchain@stable
         with:
-          key: ${{ matrix.platform.target }}
+          targets: ${{ matrix.platform.target }}
 
-      - name: Build with cross
-        uses: houseabsolute/actions-rust-cross@v1
-        with:
-          command: build
-          target: ${{ matrix.platform.target }}
-          args: --locked --release
-          strip: true
+      - name: Install rust stable (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          rustup toolchain install stable
+          rustup default stable
+          rustup target add ${{ matrix.platform.target }}
 
-      - name: Prepare binary
+      - name: Build (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: cargo build --locked --release --target ${{ matrix.platform.target }}
+
+      - name: Build (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: cargo build --locked --release --target ${{ matrix.platform.target }}
+
+      - name: Prepare binary (unix)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
           BIN_NAME="pigeons"
           TARGET="${{ matrix.platform.target }}"
-          EXT="${{ matrix.platform.ext }}"
 
-          OUT_EXT="${EXT}"
-          if [ -z "${OUT_EXT}" ]; then
-            if [[ "${TARGET}" == *"linux"* ]]; then
-              OUT_EXT=".linux"
-            elif [[ "${TARGET}" == *"apple-darwin"* ]]; then
-              OUT_EXT=".macos"
-            else
-              OUT_EXT=""
-            fi
+          if [[ "${TARGET}" == *"linux"* ]]; then
+            OUT_EXT=".linux"
+          else
+            OUT_EXT=".macos"
           fi
 
-          SRC="target/${TARGET}/release/${BIN_NAME}${EXT}"
+          SRC="target/${TARGET}/release/${BIN_NAME}"
           OUTDIR="dist/${TARGET}"
           mkdir -p "${OUTDIR}"
           if [ ! -f "${SRC}" ]; then
@@ -74,9 +80,24 @@ jobs:
             exit 1
           fi
           cp "${SRC}" "${OUTDIR}/${BIN_NAME}${OUT_EXT}"
-          chmod +x "${OUTDIR}/${BIN_NAME}${OUT_EXT}" || true
-          echo "Resulting files:"
+          chmod +x "${OUTDIR}/${BIN_NAME}${OUT_EXT}"
           ls -la "${OUTDIR}"
+
+      - name: Prepare binary (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $BinName = "pigeons"
+          $Target = "${{ matrix.platform.target }}"
+          $Src = "target/$Target/release/$BinName.exe"
+          $OutDir = "dist/$Target"
+          New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+          if (-not (Test-Path $Src)) {
+            Write-Error "Built binary not found: $Src"
+            exit 1
+          }
+          Copy-Item $Src "$OutDir/$BinName.exe"
+          Get-ChildItem $OutDir
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
@@ -88,23 +109,23 @@ jobs:
   test:
     name: Test ${{ matrix.platform.name }}
     needs: build
-    if: ${{ success() }}
+    if: ${{ !cancelled() }}
     runs-on: ${{ matrix.platform.runs-on }}
     strategy:
       fail-fast: false
       matrix:
         platform:
           - name: Linux x86_64 (musl)
-            runs-on: ubuntu-latest
+            runs-on: [self-hosted, linux, X64]
             target: x86_64-unknown-linux-musl
             ext: ".linux"
           - name: Windows x86_64 (MSVC)
-            runs-on: windows-latest
+            runs-on: [self-hosted, windows, X64]
             target: x86_64-pc-windows-msvc
             ext: ".exe"
-          - name: macOS x86_64
-            runs-on: macos-latest
-            target: x86_64-apple-darwin
+          - name: macOS ARM64
+            runs-on: [self-hosted, macOS, ARM64]
+            target: aarch64-apple-darwin
             ext: ".macos"
 
     steps:
