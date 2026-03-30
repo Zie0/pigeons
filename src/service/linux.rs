@@ -1,5 +1,4 @@
-use crate::Service;
-use crate::ServiceParams;
+use crate::{Service, ServiceParams};
 
 #[cfg(target_os = "linux")]
 #[derive(Debug, Clone)]
@@ -9,12 +8,18 @@ pub struct LinuxService;
 impl Service for LinuxService {
     async fn install(service_params: ServiceParams) -> anyhow::Result<()> {
         let path = LinuxService::init_install_script(service_params)?;
+        tracing::debug!("running install script: {}", path.display());
 
-        runas::Command::new("sh")
-            .arg(path)
-            .show(false)
-            .force_prompt(false)
+        let status = std::process::Command::new("sh")
+            .arg(&path)
+            .stdin(std::process::Stdio::inherit())
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
             .status()?;
+
+        if !status.success() {
+            anyhow::bail!("install script failed with exit code: {}", status);
+        }
 
         Ok(())
     }
@@ -25,12 +30,18 @@ impl Service for LinuxService {
 
     async fn uninstall() -> anyhow::Result<()> {
         let path = LinuxService::init_uninstall_script()?;
+        tracing::debug!("running uninstall script: {}", path.display());
 
-        runas::Command::new("sh")
-            .arg(path)
-            .show(false)
-            .force_prompt(false)
+        let status = std::process::Command::new("sh")
+            .arg(&path)
+            .stdin(std::process::Stdio::inherit())
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
             .status()?;
+
+        if !status.success() {
+            anyhow::bail!("uninstall script failed with exit code: {}", status);
+        }
 
         Ok(())
     }
@@ -48,9 +59,6 @@ impl LinuxService {
         for url in &service_params.relay_url {
             relay_args.push_str(&format!(" --relay-url {url}"));
         }
-        for url in &service_params.extra_relay_url {
-            relay_args.push_str(&format!(" --extra-relay-url {url}"));
-        }
 
         let mut temp_sh = tempfile::Builder::new()
             .prefix("pigeons_install-")
@@ -62,9 +70,10 @@ impl LinuxService {
                 .replace("[RELAYARGS]", &relay_args)
                 .replace(
                     "[BINARYPATH]",
-                    std::env::current_exe()?
+                    service_params
+                        .binary_path
                         .to_str()
-                        .ok_or_else(|| anyhow::anyhow!("failed to get current executable path"))?,
+                        .ok_or_else(|| anyhow::anyhow!("binary path is not valid UTF-8"))?,
                 )
                 .as_bytes(),
         )?;

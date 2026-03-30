@@ -1,7 +1,7 @@
+use std::{path::Path, process::Command};
+
 #[cfg(target_os = "windows")]
 use anyhow::{Context, Result, bail};
-use std::path::Path;
-use std::process::Command;
 
 pub fn add_firewall_rules(executable_path: &Path) -> Result<()> {
     let exe_path = executable_path

@@ -11,12 +11,12 @@
 }:
 
 rustPlatform.buildRustPackage (finalAttrs: {
-  pname = "iroh-ssh";
+  pname = "pigeons";
   version = "0.2.9";
 
   src = fetchFromGitHub {
     owner = "rustonbsd";
-    repo = "iroh-ssh";
+    repo = "pigeons";
     tag = finalAttrs.version;
     hash = "sha256-0G2RZbxyxi96FpVPEamfcTrOgPxpFYHmyYg1kQfo7TQ=";
   };
@@ -33,7 +33,7 @@ rustPlatform.buildRustPackage (finalAttrs: {
     versionCheckHook
     writableTmpDirAsHomeHook
   ];
-  versionCheckProgram = "${placeholder "out"}/bin/iroh-ssh";
+  versionCheckProgram = "${placeholder "out"}/bin/pigeons";
   versionCheckProgramArg = "version";
 
   passthru = {
@@ -42,9 +42,8 @@ rustPlatform.buildRustPackage (finalAttrs: {
 
   meta = {
     description = "ssh without ip";
-    homepage = "https://github.com/rustonbsd/iroh-ssh";
+    homepage = "https://github.com/rustonbsd/pigeons";
     license = lib.licenses.mit;
-    mainProgram = "iroh-ssh";
+    mainProgram = "pigeons";
   };
 })
-

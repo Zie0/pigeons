@@ -1,41 +1,14 @@
-mod cli;
+mod protocol;
 mod service;
-pub mod ssh_config;
+mod ssh;
 mod tunnel;
 
-use ed25519_dalek::{PUBLIC_KEY_LENGTH, SECRET_KEY_LENGTH};
-use iroh::{Endpoint, RelayUrl, protocol::Router};
-
-pub mod api;
-
-pub use cli::*;
-pub use service::Service;
-pub use service::ServiceParams;
-pub use service::{install_service, run_service, uninstall_service};
-pub use tunnel::dot_ssh;
-
-#[derive(Debug, Clone)]
-pub struct IrohTunnel {
-    #[allow(dead_code)]
-    pub(crate) secret_key: [u8; SECRET_KEY_LENGTH],
-    #[allow(dead_code)]
-    pub(crate) public_key: [u8; PUBLIC_KEY_LENGTH],
-    pub(crate) inner: Option<Inner>,
-    pub(crate) ssh_port: u16,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct Inner {
-    pub endpoint: Endpoint,
-    #[allow(dead_code)]
-    pub router: Router,
-}
-
-#[derive(Debug, Clone)]
-pub struct Builder {
-    secret_key: [u8; SECRET_KEY_LENGTH],
-    accept_incoming: bool,
-    accept_port: Option<u16>,
-    relay_urls: Vec<RelayUrl>,
-    extra_relay_urls: Vec<RelayUrl>,
-}
+pub use service::{
+    Service, ServiceParams, install as install_service, resolve_binary_path, service_endpoint_id,
+    service_log, uninstall as uninstall_service,
+};
+pub use ssh::{
+    SshConfigPigeonEntry, add_tunnel_host, dot_ssh_secret_key, home_ssh_dir, list_tunnel_hosts,
+    remove_tunnel_host,
+};
+pub use tunnel::{RoostConfig, Tunnel, TunnelBuilder};

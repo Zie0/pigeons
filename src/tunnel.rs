@@ -1,283 +1,245 @@
-use crate::{Builder, Inner, IrohTunnel};
+use std::path::PathBuf;
 
-use anyhow::bail;
-use ed25519_dalek::SECRET_KEY_LENGTH;
-use homedir::my_home;
-use std::sync::Arc;
-
+use anyhow::{Context, Result, anyhow};
 use iroh::{
-    Endpoint, EndpointId, RelayConfig, RelayUrl, SecretKey,
-    endpoint::{Connection, RelayMode, presets},
-    protocol::{ProtocolHandler, Router},
+    Endpoint, EndpointId, RelayUrl, SecretKey,
+    endpoint::{RelayMode, presets},
+    protocol::Router,
 };
-use tokio::net::TcpStream;
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpListener,
+};
 
-impl Builder {
-    pub fn new() -> Self {
-        Self {
-            secret_key: SecretKey::generate(&mut rand::rng()).to_bytes(),
-            accept_incoming: false,
-            accept_port: None,
+use crate::{
+    protocol::PigeonsProtocol,
+    ssh::{self, dot_ssh_secret_key},
+};
+
+#[derive(Debug)]
+pub struct RoostConfig {
+    pub ssh_port: u16,
+}
+
+impl Default for RoostConfig {
+    fn default() -> Self {
+        Self { ssh_port: 22 }
+    }
+}
+
+#[derive(Debug)]
+pub struct TunnelBuilder {
+    /// optional roost role configuration to expose a local ssh server
+    /// through the tunnel
+    pub roost: Option<RoostConfig>,
+    /// ED25519 key to use to secure tunnel communications, the endpoint ID that
+    /// identifies the tunnel is the public half of this keypair
+    pub secret_key: SecretKey,
+    /// the set of iroh relay urls to use. Empty set will default to public
+    /// relay servers run by number 0
+    pub relay_urls: Vec<RelayUrl>,
+    /// iroh services client for telemetry aggregation
+    pub isvc_client_secret: Option<String>,
+}
+
+impl Default for TunnelBuilder {
+    fn default() -> Self {
+        TunnelBuilder {
+            roost: None,
+            secret_key: SecretKey::generate(&mut rand::rng()),
             relay_urls: Vec::new(),
-            extra_relay_urls: Vec::new(),
+            isvc_client_secret: None,
+        }
+    }
+}
+
+impl TunnelBuilder {
+    fn new(secret_key: SecretKey) -> Self {
+        TunnelBuilder {
+            roost: None,
+            secret_key,
+            relay_urls: vec![],
+            isvc_client_secret: None,
         }
     }
 
-    pub fn accept_incoming(mut self, accept_incoming: bool) -> Self {
-        self.accept_incoming = accept_incoming;
-        self
-    }
-
-    pub fn accept_port(mut self, accept_port: u16) -> Self {
-        self.accept_port = Some(accept_port);
-        self
-    }
-
-    pub fn secret_key(mut self, secret_key: &[u8; SECRET_KEY_LENGTH]) -> Self {
-        self.secret_key = *secret_key;
-        self
-    }
-
-    pub fn relay_urls(mut self, urls: Vec<RelayUrl>) -> Self {
-        self.relay_urls = urls;
-        self
-    }
-
-    pub fn extra_relay_urls(mut self, urls: Vec<RelayUrl>) -> Self {
-        self.extra_relay_urls = urls;
-        self
-    }
-
-    pub fn dot_ssh_integration(mut self, persist: bool, service: bool) -> Self {
-        tracing::info!(
-            "dot_ssh_integration: persist={}, service={}",
-            persist,
-            service
-        );
-
-        match dot_ssh(&SecretKey::from_bytes(&self.secret_key), persist, service) {
-            Ok(secret_key) => {
-                tracing::info!("dot_ssh_integration: Successfully loaded/created SSH keys");
-                self.secret_key = secret_key.to_bytes();
-            }
-            Err(e) => {
-                tracing::error!(
-                    "dot_ssh_integration: Failed to load/create SSH keys: {:#}",
-                    e
-                );
-                eprintln!("Warning: Failed to load/create persistent SSH keys: {e:#}");
-                eprintln!("Continuing with ephemeral keys...");
-            }
-        }
-        self
-    }
-
-    pub async fn build(&mut self) -> anyhow::Result<IrohTunnel> {
-        let secret_key = SecretKey::from_bytes(&self.secret_key);
-        let mut builder = Endpoint::builder(presets::N0).secret_key(secret_key);
+    pub async fn build(self) -> Result<Tunnel> {
+        tracing::debug!("building tunnel, roost={}", self.roost.is_some());
+        let mut builder = Endpoint::builder(presets::N0).secret_key(self.secret_key.clone());
 
         if !self.relay_urls.is_empty() {
+            tracing::debug!("using {} custom relay URLs", self.relay_urls.len());
             let relay_map = self.relay_urls.iter().cloned().collect();
-            builder = builder.relay_mode(RelayMode::Custom(relay_map));
-        } else if !self.extra_relay_urls.is_empty() {
-            let relay_map = RelayMode::Default.relay_map();
-            for url in &self.extra_relay_urls {
-                relay_map.insert(url.clone(), Arc::new(RelayConfig::from(url.clone())));
-            }
             builder = builder.relay_mode(RelayMode::Custom(relay_map));
         }
 
         let endpoint = builder.bind().await?;
+        tracing::info!("endpoint bound, id={}", endpoint.id());
 
-        let mut tunnel = IrohTunnel {
-            public_key: *endpoint.id().as_bytes(),
-            secret_key: self.secret_key,
-            inner: None,
-            ssh_port: self.accept_port.unwrap_or(22),
+        let isvc_client = match self.isvc_client_secret {
+            Some(secret) => {
+                let client = iroh_services::Client::builder(&endpoint)
+                    .api_secret_from_str(&secret)?
+                    .build()
+                    .await?;
+                Some(client)
+            }
+            None => None,
         };
 
-        let router = if self.accept_incoming {
-            Router::builder(endpoint.clone()).accept(IrohTunnel::ALPN, tunnel.clone())
-        } else {
-            Router::builder(endpoint.clone())
+        let mut router = Router::builder(endpoint.clone());
+
+        if let Some(home) = &self.roost {
+            tracing::debug!("roost mode: checking for sshd on port {}", home.ssh_port);
+            ssh::ensure_local_ssh_server_exists(home.ssh_port).await?;
+            let handler = PigeonsProtocol::new(home.ssh_port);
+            router = router.accept(PigeonsProtocol::ALPN, handler);
+            tracing::info!(
+                "roost accepting connections on ALPN {:?}",
+                std::str::from_utf8(PigeonsProtocol::ALPN)
+            );
         }
-        .spawn();
 
-        tunnel.add_inner(endpoint, router);
+        let router = router.spawn();
+        tracing::debug!("router spawned");
 
-        Ok(tunnel)
+        Ok(Tunnel {
+            router,
+            isvc_client,
+        })
     }
 }
 
-impl Default for Builder {
-    fn default() -> Self {
-        Self::new()
-    }
+#[derive(Debug)]
+pub struct Tunnel {
+    router: Router,
+    #[allow(dead_code)]
+    isvc_client: Option<iroh_services::Client>,
 }
 
-impl IrohTunnel {
-    pub const ALPN: &[u8] = b"/iroh-tunnel/0";
-
-    pub fn builder() -> Builder {
-        Builder::new()
+impl Tunnel {
+    pub fn builder_ephemeral() -> TunnelBuilder {
+        TunnelBuilder::default()
     }
 
-    fn add_inner(&mut self, endpoint: Endpoint, router: Router) {
-        self.inner = Some(Inner { endpoint, router });
+    pub fn builder_from_ssh_dir(ssh_dir: PathBuf) -> Result<TunnelBuilder> {
+        let secret_key = dot_ssh_secret_key(ssh_dir)?;
+        Ok(TunnelBuilder::new(secret_key))
     }
 
-    pub fn endpoint(&self) -> &Endpoint {
-        &self.inner.as_ref().expect("inner not set").endpoint
+    pub async fn fly(&self, remote: EndpointId) -> Result<()> {
+        let bind_addr = format!("127.0.0.1:{}", 0);
+        let listener = TcpListener::bind(&bind_addr).await?;
+        tracing::info!("fly: listening on {}", listener.local_addr()?);
+        prepare_pigeon(self.endpoint().clone(), listener, remote).await
     }
 
-    pub fn endpoint_id(&self) -> EndpointId {
-        self.inner.as_ref().expect("inner not set").endpoint.id()
-    }
-}
+    /// Bridge stdin/stdout directly to a remote roost via iroh.
+    /// Designed for use as an SSH ProxyCommand:
+    ///   ProxyCommand pigeons fly --stdio <endpoint_id>
+    pub async fn fly_stdio(&self, remote: EndpointId) -> Result<()> {
+        tracing::debug!("fly_stdio: connecting to {remote}");
+        let conn = self
+            .endpoint()
+            .connect(remote, PigeonsProtocol::ALPN)
+            .await?;
+        tracing::debug!("fly_stdio: connected, opening bidirectional stream");
+        let (mut iroh_send, mut iroh_recv) = conn.open_bi().await?;
+        tracing::debug!("fly_stdio: bridging stdin/stdout");
 
-impl ProtocolHandler for IrohTunnel {
-    async fn accept(&self, connection: Connection) -> Result<(), iroh::protocol::AcceptError> {
-        let endpoint_id = connection.remote_id();
+        let mut stdin = tokio::io::stdin();
+        let mut stdout = tokio::io::stdout();
 
-        match connection.accept_bi().await {
-            Ok((mut iroh_send, mut iroh_recv)) => {
-                println!("Pigeon arrived from {endpoint_id}");
+        let stdin_to_iroh = copy_flush(&mut stdin, &mut iroh_send);
+        let iroh_to_stdout = copy_flush(&mut iroh_recv, &mut stdout);
 
-                match TcpStream::connect(format!("127.0.0.1:{}", self.ssh_port)).await {
-                    Ok(mut ssh_stream) => {
-                        println!("Delivering to local sshd on port {}", self.ssh_port);
-
-                        let (mut local_read, mut local_write) = ssh_stream.split();
-
-                        let a_to_b =
-                            async move { tokio::io::copy(&mut local_read, &mut iroh_send).await };
-                        let b_to_a =
-                            async move { tokio::io::copy(&mut iroh_recv, &mut local_write).await };
-
-                        tokio::select! {
-                            result = a_to_b => {
-                                let _ = result;
-                                println!("Pigeon from {endpoint_id} returned home.");
-                            },
-                            result = b_to_a => {
-                                let _ = result;
-                                println!("Pigeon from {endpoint_id} returned home.");
-                            },
-                        };
-                    }
-                    Err(e) => {
-                        println!("Pigeon couldn't reach sshd: {e}");
-                    }
-                }
-            }
-            Err(e) => {
-                println!("Pigeon dropped its message: {e}");
-            }
+        tokio::select! {
+            result = stdin_to_iroh => { result?; }
+            result = iroh_to_stdout => { result?; }
         }
 
         Ok(())
     }
+
+    pub async fn close(&self) -> Result<()> {
+        self.router.shutdown().await.context("shutting down router")
+    }
+
+    pub fn endpoint(&self) -> &Endpoint {
+        self.router.endpoint()
+    }
 }
 
-pub fn dot_ssh(
-    default_secret_key: &SecretKey,
-    persist: bool,
-    _service: bool,
-) -> anyhow::Result<SecretKey> {
-    tracing::info!(
-        "dot_ssh: Function called, persist={}, service={}",
-        persist,
-        _service
-    );
-
-    let distro_home = my_home()?.ok_or_else(|| anyhow::anyhow!("home directory not found"))?;
-    #[allow(unused_mut)]
-    let mut ssh_dir = distro_home.join(".ssh");
-
-    #[cfg(target_os = "linux")]
-    if _service {
-        ssh_dir = std::path::PathBuf::from("/root/.ssh");
-    }
-
-    #[cfg(target_os = "macos")]
-    if _service {
-        ssh_dir = std::path::PathBuf::from("/var/root/.ssh");
-    }
-
-    #[cfg(target_os = "windows")]
-    if _service {
-        ssh_dir = std::path::PathBuf::from(crate::service::WindowsService::SERVICE_SSH_DIR);
-        tracing::info!("dot_ssh: Using service SSH dir: {}", ssh_dir.display());
-
-        if !ssh_dir.exists() {
-            tracing::info!("dot_ssh: Service SSH dir doesn't exist, creating it");
-            std::fs::create_dir_all(&ssh_dir)?;
-        }
-    }
-
-    let pub_key = ssh_dir.join("iroh_tunnel_ed25519.pub");
-    let priv_key = ssh_dir.join("iroh_tunnel_ed25519");
-
-    // Also check legacy key names for backward compat
-    let legacy_pub_key = ssh_dir.join("irohssh_ed25519.pub");
-    let legacy_priv_key = ssh_dir.join("irohssh_ed25519");
-
-    tracing::debug!("dot_ssh: ssh_dir exists = {}", ssh_dir.exists());
-    tracing::debug!("dot_ssh: pub_key path = {}", pub_key.display());
-    tracing::debug!("dot_ssh: priv_key path = {}", priv_key.display());
-
-    // Determine which key files to use (prefer new names, fall back to legacy)
-    let (active_pub, active_priv) = if pub_key.exists() && priv_key.exists() {
-        (pub_key, priv_key)
-    } else if legacy_pub_key.exists() && legacy_priv_key.exists() {
-        (legacy_pub_key, legacy_priv_key)
-    } else {
-        (pub_key, priv_key)
-    };
-
-    match (ssh_dir.exists(), persist) {
-        (false, false) => {
-            bail!(
-                "no .ssh folder found in {}, use --persist flag to create it",
-                distro_home.display()
-            )
-        }
-        (false, true) => {
-            std::fs::create_dir_all(&ssh_dir)?;
-            println!("[INFO] created .ssh folder: {}", ssh_dir.display());
-            dot_ssh(default_secret_key, persist, _service)
-        }
-        (true, true) => {
-            if active_pub.exists() && active_priv.exists() {
-                if let Ok(secret_key) = std::fs::read(&active_priv) {
-                    let mut sk_bytes = [0u8; SECRET_KEY_LENGTH];
-                    sk_bytes.copy_from_slice(z32::decode(secret_key.as_slice())?.as_slice());
-                    Ok(SecretKey::from_bytes(&sk_bytes))
-                } else {
-                    bail!("failed to read secret key from {}", active_priv.display())
-                }
-            } else {
-                let secret_key = default_secret_key.clone();
-                let public_key = secret_key.public();
-
-                std::fs::write(&active_pub, z32::encode(public_key.as_bytes()))?;
-                std::fs::write(&active_priv, z32::encode(&secret_key.to_bytes()))?;
-
-                Ok(secret_key)
+async fn prepare_pigeon(
+    endpoint: Endpoint,
+    listener: TcpListener,
+    remote: EndpointId,
+) -> Result<()> {
+    loop {
+        match listener.accept().await {
+            Ok((tcp_stream, peer_addr)) => {
+                tracing::info!("pigeon departing from {peer_addr}");
+                let endpoint = endpoint.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = bridge_connection(tcp_stream, &endpoint, remote).await {
+                        tracing::error!("pigeon lost in transit: {e}");
+                    }
+                });
+            }
+            Err(err) => {
+                tracing::error!("failed to accept connection: {err}");
+                return Err(anyhow!(err));
             }
         }
-        (true, false) => {
-            if active_pub.exists() && active_priv.exists() {
-                if let Ok(secret_key) = std::fs::read(&active_priv) {
-                    let mut sk_bytes = [0u8; SECRET_KEY_LENGTH];
-                    sk_bytes.copy_from_slice(z32::decode(secret_key.as_slice())?.as_slice());
-                    return Ok(SecretKey::from_bytes(&sk_bytes));
-                }
-            }
-            bail!(
-                "no pigeon keys found in {}, use --persist flag to create them",
-                ssh_dir.display()
-            )
+    }
+}
+
+/// takes a TCP stream & adds it
+async fn bridge_connection(
+    tcp_stream: tokio::net::TcpStream,
+    endpoint: &Endpoint,
+    remote_id: EndpointId,
+) -> anyhow::Result<()> {
+    tcp_stream.set_nodelay(true)?;
+    tracing::debug!("bridge_connection: connecting to {remote_id}");
+    let conn = endpoint.connect(remote_id, PigeonsProtocol::ALPN).await?;
+    tracing::debug!("bridge_connection: connected, opening bi stream");
+    let (mut iroh_send, mut iroh_recv) = conn.open_bi().await?;
+    let (mut tcp_read, mut tcp_write) = tcp_stream.into_split();
+
+    let tcp_to_iroh = copy_flush(&mut tcp_read, &mut iroh_send);
+    let iroh_to_tcp = copy_flush(&mut iroh_recv, &mut tcp_write);
+
+    tokio::select! {
+        result = tcp_to_iroh => {
+            let _ = result;
         }
+        result = iroh_to_tcp => {
+            let _ = result;
+        }
+    }
+
+    Ok(())
+}
+
+/// Copy data from reader to writer, flushing after every write.
+/// Unlike `tokio::io::copy` (which buffers 8KB before flushing),
+/// this ensures interactive data like SSH keystrokes are forwarded
+/// immediately.
+pub(crate) async fn copy_flush<R, W>(reader: &mut R, writer: &mut W) -> std::io::Result<u64>
+where
+    R: tokio::io::AsyncRead + Unpin,
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    let mut buf = [0u8; 8 * 1024];
+    let mut total = 0u64;
+    loop {
+        let n = reader.read(&mut buf).await?;
+        if n == 0 {
+            return Ok(total);
+        }
+        writer.write_all(&buf[..n]).await?;
+        writer.flush().await?;
+        total += n as u64;
     }
 }

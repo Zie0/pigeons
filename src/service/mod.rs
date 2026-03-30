@@ -8,39 +8,59 @@ mod macos;
 #[cfg(target_os = "macos")]
 use crate::service::macos::MacosService;
 
+// Much of the windows module is invoked by the Windows Service Control Manager
+// rather than our own code paths, so the compiler sees it as dead code.
 #[cfg(target_os = "windows")]
+#[allow(dead_code)]
 mod windows;
 #[cfg(target_os = "windows")]
 pub(crate) use crate::service::windows::WindowsService;
-
-#[cfg(target_os = "windows")]
-pub async fn run_service(
-    ssh_port: u16,
-    relay_url: Vec<String>,
-    extra_relay_url: Vec<String>,
-) -> anyhow::Result<()> {
-    WindowsService::run_service(ServiceParams {
-        ssh_port,
-        relay_url,
-        extra_relay_url,
-    })
-    .await
-}
-
-#[cfg(not(target_os = "windows"))]
-pub async fn run_service(
-    _ssh_port: u16,
-    _relay_url: Vec<String>,
-    _extra_relay_url: Vec<String>,
-) -> anyhow::Result<()> {
-    anyhow::bail!("service run is only supported on windows");
-}
 
 #[derive(Debug, Clone)]
 pub struct ServiceParams {
     pub ssh_port: u16,
     pub relay_url: Vec<String>,
-    pub extra_relay_url: Vec<String>,
+    pub binary_path: std::path::PathBuf,
+}
+
+/// Discover the absolute path of the currently-running pigeons binary and
+/// validate that it lives in a location suitable for a system daemon.
+///
+/// On Unix, the binary must be in a standard system path. On Windows, the
+/// service installer copies the binary itself, so any path is accepted.
+pub fn resolve_binary_path() -> anyhow::Result<std::path::PathBuf> {
+    let exe = std::env::current_exe()?;
+    let resolved = exe.canonicalize()?;
+
+    #[cfg(unix)]
+    {
+        const SENSIBLE_PREFIXES: &[&str] = &[
+            "/usr/local/bin",
+            "/usr/bin",
+            "/opt/homebrew/bin",
+            "/opt/",
+            "/usr/local/sbin",
+            "/usr/sbin",
+        ];
+
+        let path_str = resolved
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("binary path is not valid UTF-8: {resolved:?}"))?;
+
+        if !SENSIBLE_PREFIXES
+            .iter()
+            .any(|pfx| path_str.starts_with(pfx))
+        {
+            anyhow::bail!(
+                "pigeons binary is at {path_str}, which doesn't look like a permanent install location.\n\
+                 Install pigeons to one of the standard paths ({}) before running service install.",
+                SENSIBLE_PREFIXES.join(", ")
+            );
+        }
+    }
+
+    tracing::info!("resolved pigeons binary path: {}", resolved.display());
+    Ok(resolved)
 }
 
 pub trait Service {
@@ -51,19 +71,24 @@ pub trait Service {
     fn uninstall() -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
 }
 
-pub async fn install_service(_service_params: ServiceParams) -> anyhow::Result<()> {
+pub async fn install(service_params: ServiceParams) -> anyhow::Result<()> {
+    tracing::info!(
+        "installing service for os={}, ssh_port={}",
+        std::env::consts::OS,
+        service_params.ssh_port
+    );
     match std::env::consts::OS {
         #[cfg(target_os = "linux")]
-        "linux" => LinuxService::install(_service_params).await,
+        "linux" => LinuxService::install(service_params).await,
         #[cfg(target_os = "macos")]
-        "macos" => MacosService::install(_service_params).await,
+        "macos" => MacosService::install(service_params).await,
         #[cfg(target_os = "windows")]
-        "windows" => WindowsService::install(_service_params).await,
+        "windows" => WindowsService::install(service_params).await,
         _ => anyhow::bail!("service mode is only supported on linux, macos, and windows"),
     }
 }
 
-pub async fn uninstall_service() -> anyhow::Result<()> {
+pub async fn uninstall() -> anyhow::Result<()> {
     match std::env::consts::OS {
         #[cfg(target_os = "linux")]
         "linux" => LinuxService::uninstall().await,
@@ -72,5 +97,54 @@ pub async fn uninstall_service() -> anyhow::Result<()> {
         #[cfg(target_os = "windows")]
         "windows" => WindowsService::uninstall().await,
         _ => anyhow::bail!("service mode is only supported on linux, macos, and windows"),
+    }
+}
+
+/// Try to read the endpoint ID of the installed pigeons service.
+/// The roost writes the endpoint ID string to /etc/pigeons/endpoint_id
+/// on startup when running as root (service mode).
+/// Returns Some(endpoint_id) if found, None otherwise.
+pub fn service_endpoint_id() -> Option<iroh::EndpointId> {
+    let content = match std::env::consts::OS {
+        "linux" => "/etc/pigeons/endpoint_id",
+        "macos" => "/etc/pigeons/endpoint_id",
+        "windows" => "C:\\ProgramData\\pigeons\\endpoint_id",
+        _ => {
+            tracing::warn!(
+                "service-level endpoint id is only supported on linux, macos, and windows"
+            );
+            return None;
+        }
+    };
+    let content = std::fs::read_to_string(content).ok()?;
+    content.trim().parse().ok()
+}
+
+/// Print service logs to stdout.
+pub fn service_log() -> anyhow::Result<()> {
+    match std::env::consts::OS {
+        "macos" => {
+            let path = std::path::Path::new("/var/log/pigeons.log");
+            if !path.exists() {
+                anyhow::bail!(
+                    "no log file found at /var/log/pigeons.log — is the service installed?"
+                );
+            }
+            let status = std::process::Command::new("cat").arg(path).status()?;
+            if !status.success() {
+                anyhow::bail!("failed to read log file (try running with sudo)");
+            }
+            Ok(())
+        }
+        "linux" => {
+            let status = std::process::Command::new("journalctl")
+                .args(["-u", "pigeons.service", "--no-pager"])
+                .status()?;
+            if !status.success() {
+                anyhow::bail!("failed to read service journal");
+            }
+            Ok(())
+        }
+        other => anyhow::bail!("service log is not supported on {other}"),
     }
 }

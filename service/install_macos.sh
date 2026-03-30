@@ -1,3 +1,5 @@
+set -e
+
 if ! /usr/bin/nc -z 127.0.0.1 [SSHPORT] 2>/dev/null; then
     echo "Warning: no sshd detected on port [SSHPORT]. Pigeons won't be able to deliver connections."
     echo "  Enable Remote Login in System Settings to start sshd."
@@ -17,7 +19,7 @@ cat > "$PLIST_PATH" <<'PLIST_EOF'
     <array>
         <string>/bin/bash</string>
         <string>-c</string>
-        <string>pigeons home -p --ssh-port [SSHPORT][RELAYARGS]</string>
+        <string>[BINARYPATH] roost --ssh-port [SSHPORT][RELAYARGS]</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
@@ -25,6 +27,11 @@ cat > "$PLIST_PATH" <<'PLIST_EOF'
     <dict>
         <key>SuccessfulExit</key>
         <false/>
+    </dict>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>RUST_LOG</key>
+        <string>info</string>
     </dict>
     <key>WorkingDirectory</key>
     <string>/var/root</string>
@@ -36,15 +43,13 @@ cat > "$PLIST_PATH" <<'PLIST_EOF'
 </plist>
 PLIST_EOF
 
-if [ "$(realpath '[BINARYPATH]')" != "$(realpath /usr/local/bin/pigeons 2>/dev/null)" ]; then
-    cp [BINARYPATH] /usr/local/bin/pigeons
+echo "starting pigeons..."
+if launchctl list 2>/dev/null | grep -q computer.pigeons.daemon; then
+    # Already running; bootout first so we can re-bootstrap with new config
+    launchctl bootout system/computer.pigeons.daemon || true
+    sleep 1
 fi
 
-launchctl list | grep -q computer.pigeons.daemon
-if [ $? -eq 0 ]; then
-    # Already running; bootout and re-bootstrap to pick up any config changes
-    launchctl bootout system/computer.pigeons.daemon 2>/dev/null || launchctl unload "$PLIST_PATH" 2>/dev/null
-fi
+launchctl bootstrap system "$PLIST_PATH"
 
-# bootstrap registers AND starts the service (modern launchctl)
-launchctl bootstrap system "$PLIST_PATH" 2>/dev/null || launchctl load "$PLIST_PATH"
+echo "done"

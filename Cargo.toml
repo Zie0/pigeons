@@ -3,7 +3,7 @@ name = "pigeons"
 description = "carrier pigeons for your SSH connections"
 license = "MIT"
 authors = ["Zacharias Boehler <rustonbsd@mailfence.com>"]
-repository = "https://github.com/rustonbsd/iroh-ssh"
+repository = "https://github.com/rustonbsd/pigeons"
 readme = "README.md"
 keywords = ["networking"]
 categories = ["network-programming"]
@@ -17,7 +17,7 @@ ed25519-dalek = { version = "2.2.0", features = ["rand_core"] }
 rand = "0.9"
 tokio-stream = { version = "0.1.18", features = ["sync"] }
 tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.22", features = ["fmt", "ansi"] }
+tracing-subscriber = { version = "0.3.22", features = ["fmt", "ansi", "env-filter"] }
 tracing-appender = "0.2.4"
 tokio = { version = "1.49.0", features = [
     "signal",
@@ -30,9 +30,9 @@ clap = { version = "4.5.60", features = ["derive"] }
 homedir = "0.3.6"
 whoami = "2.1.1"
 z32 = "1.3"
-runas = "1.2.0"
 tempfile = "3.26.0"
 self-runas = "0.1"
+iroh-services = "0.12.0"
 
 [target.'cfg(windows)'.dependencies.windows-service]
 version = "0.8.0"
