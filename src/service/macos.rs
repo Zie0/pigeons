@@ -45,6 +45,21 @@ impl Service for MacosService {
 
         Ok(())
     }
+
+    async fn restart() -> anyhow::Result<()> {
+        let status = std::process::Command::new("launchctl")
+            .args(["kickstart", "-k", "system/computer.pigeons.daemon"])
+            .stdin(std::process::Stdio::inherit())
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .status()?;
+
+        if !status.success() {
+            anyhow::bail!("launchctl kickstart failed with exit code: {}", status);
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(target_os = "macos")]
