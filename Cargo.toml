@@ -2,7 +2,7 @@
 name = "pigeons"
 description = "carrier pigeons for your SSH connections"
 license = "MIT"
-authors = ["Zacharias Boehler <rustonbsd@mailfence.com>"]
+authors = ["b5 sparkle_pony_2000@gmail.com", "Zacharias Boehler <rustonbsd@mailfence.com>"]
 repository = "https://github.com/rustonbsd/pigeons"
 readme = "README.md"
 keywords = ["networking"]
@@ -12,30 +12,30 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.102"
-iroh = "0.97"
+iroh = "1.0.0-rc.0"
 ed25519-dalek = { version = "2.2.0", features = ["rand_core"] }
-rand = "0.9"
+rand = "0.10.1"
 tokio-stream = { version = "0.1.18", features = ["sync"] }
 tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.22", features = ["fmt", "ansi", "env-filter"] }
-tracing-appender = "0.2.4"
-tokio = { version = "1.49.0", features = [
+tracing-subscriber = { version = "0.3.23", features = ["fmt", "ansi", "env-filter"] }
+tracing-appender = "0.2.5"
+tokio = { version = "1.52.3", features = [
     "signal",
     "macros",
     "io-util",
     "sync",
     "rt",
 ] }
-clap = { version = "4.5.60", features = ["derive"] }
+clap = { version = "4.6.1", features = ["derive"] }
 homedir = "0.3.6"
-whoami = "2.1.1"
+whoami = "2.1.2"
 z32 = "1.3"
-tempfile = "3.26.0"
+tempfile = "3.27.0"
 self-runas = "0.1"
-iroh-services = "0.12.0"
+iroh-services = "1.0.0-rc.0"
 
 [target.'cfg(windows)'.dependencies.windows-service]
-version = "0.8.0"
+version = "0.8.1"
 [target.'cfg(windows)'.dependencies.windows-sys]
 version = "0.61.2"
 features = [
