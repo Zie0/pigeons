@@ -45,6 +45,21 @@ impl Service for LinuxService {
 
         Ok(())
     }
+
+    async fn restart() -> anyhow::Result<()> {
+        let status = std::process::Command::new("systemctl")
+            .args(["restart", "pigeons.service"])
+            .stdin(std::process::Stdio::inherit())
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .status()?;
+
+        if !status.success() {
+            anyhow::bail!("systemctl restart failed with exit code: {}", status);
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(target_os = "linux")]

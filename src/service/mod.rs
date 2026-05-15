@@ -69,6 +69,7 @@ pub trait Service {
     ) -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
     fn info() -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
     fn uninstall() -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
+    fn restart() -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
 }
 
 pub async fn install(service_params: ServiceParams) -> anyhow::Result<()> {
@@ -96,6 +97,18 @@ pub async fn uninstall() -> anyhow::Result<()> {
         "macos" => MacosService::uninstall().await,
         #[cfg(target_os = "windows")]
         "windows" => WindowsService::uninstall().await,
+        _ => anyhow::bail!("service mode is only supported on linux, macos, and windows"),
+    }
+}
+
+pub async fn restart() -> anyhow::Result<()> {
+    match std::env::consts::OS {
+        #[cfg(target_os = "linux")]
+        "linux" => LinuxService::restart().await,
+        #[cfg(target_os = "macos")]
+        "macos" => MacosService::restart().await,
+        #[cfg(target_os = "windows")]
+        "windows" => WindowsService::restart().await,
         _ => anyhow::bail!("service mode is only supported on linux, macos, and windows"),
     }
 }

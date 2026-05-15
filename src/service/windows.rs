@@ -24,7 +24,7 @@ use windows_service::{
     service::{
         Service as WinService, ServiceAccess, ServiceAction, ServiceActionType, ServiceDependency,
         ServiceErrorControl, ServiceFailureActions, ServiceFailureResetPeriod, ServiceInfo,
-        ServiceSidType, ServiceStartType, ServiceType,
+        ServiceSidType, ServiceStartType, ServiceState, ServiceType,
     },
     service_manager::{ServiceManager, ServiceManagerAccess},
 };
@@ -73,6 +73,13 @@ impl Service for WindowsService {
         task::spawn_blocking(WindowsService::uninstall_blocking)
             .await
             .context("windows service uninstall task panicked")??;
+        Ok(())
+    }
+
+    async fn restart() -> anyhow::Result<()> {
+        task::spawn_blocking(WindowsService::restart_blocking)
+            .await
+            .context("windows service restart task panicked")??;
         Ok(())
     }
 }
@@ -170,6 +177,51 @@ impl WindowsService {
             Err(err) if err.kind() == io::ErrorKind::NotFound => {}
             Err(err) => return Err(err).context("failed to remove staged service binary"),
         }
+        Ok(())
+    }
+
+    fn restart_blocking() -> anyhow::Result<()> {
+        let manager_access = ServiceManagerAccess::CONNECT;
+        let service_manager = ServiceManager::local_computer(None::<&str>, manager_access)
+            .context("failed to connect to service control manager")?;
+
+        let service_access =
+            ServiceAccess::QUERY_STATUS | ServiceAccess::STOP | ServiceAccess::START;
+        let service = service_manager
+            .open_service(Self::SERVICE_NAME, service_access)
+            .context("failed to open pigeons service (is it installed?)")?;
+
+        let status = service
+            .query_status()
+            .context("failed to query service status")?;
+        if status.current_state != ServiceState::Stopped
+            && status.current_state != ServiceState::StopPending
+        {
+            if let Err(err) = service.stop() {
+                match err {
+                    WinServiceError::Winapi(io_err)
+                        if io_err.raw_os_error() == Some(ERROR_SERVICE_NOT_ACTIVE as i32) => {}
+                    other => return Err(other).context("failed to stop service"),
+                }
+            }
+        }
+
+        let start = Instant::now();
+        let timeout = Duration::from_secs(30);
+        loop {
+            let status = service
+                .query_status()
+                .context("failed to query service status during restart")?;
+            if status.current_state == ServiceState::Stopped {
+                break;
+            }
+            if start.elapsed() >= timeout {
+                bail!("service did not stop within {}s", timeout.as_secs());
+            }
+            std::thread::sleep(Duration::from_millis(500));
+        }
+
+        Self::start_service(&service).context("failed to start service")?;
         Ok(())
     }
 

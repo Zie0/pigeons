@@ -48,6 +48,8 @@ pub enum ServiceCmd {
     },
     /// Tear down the coop (uninstall system service)
     Uninstall,
+    /// Restart the running service
+    Restart,
     /// Show service status
     Status,
     /// Show service logs
@@ -262,6 +264,16 @@ async fn main() -> anyhow::Result<()> {
 
                     pigeons::uninstall_service().await?;
                     println!("Pigeons service uninstalled.");
+                    Ok(())
+                }
+                ServiceCmd::Restart => {
+                    if !self_runas::is_elevated() {
+                        self_runas::admin()?;
+                        return Ok(());
+                    }
+
+                    pigeons::restart_service().await?;
+                    println!("Pigeons service restarted.");
                     Ok(())
                 }
                 ServiceCmd::Status => {
