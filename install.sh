@@ -24,7 +24,7 @@ release_target_url=$(
     curl -s "$release_url" |
     grep "browser_download_url" |
     grep "$target" |
-    sed -re 's/.*: "([^"]+)".*/\1/' \
+    sed -E 's/.*: "([^"]+)".*/\1/' \
 )
 
 curl -sL "$release_target_url" | tar xzf -
