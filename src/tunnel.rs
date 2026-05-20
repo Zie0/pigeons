@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, str::FromStr};
 
 use anyhow::{Context, Result, anyhow};
 use iroh::{
@@ -6,10 +6,12 @@ use iroh::{
     endpoint::{RelayMode, presets},
     protocol::Router,
 };
+use iroh_services::ApiSecret;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
 };
+use tracing::warn;
 
 use crate::{
     protocol::PigeonsProtocol,
@@ -39,28 +41,23 @@ pub struct TunnelBuilder {
     /// relay servers run by number 0
     pub relay_urls: Vec<RelayUrl>,
     /// iroh services client for telemetry aggregation
-    pub isvc_client_secret: Option<String>,
-}
-
-impl Default for TunnelBuilder {
-    fn default() -> Self {
-        TunnelBuilder {
-            roost: None,
-            secret_key: SecretKey::generate(),
-            relay_urls: Vec::new(),
-            isvc_client_secret: None,
-        }
-    }
+    pub isvc_api_secret: Option<ApiSecret>,
 }
 
 impl TunnelBuilder {
-    fn new(secret_key: SecretKey) -> Self {
-        TunnelBuilder {
+    fn new(secret_key: SecretKey) -> Result<Self> {
+        let isvc_api_secret = iroh_services_api_secret()?;
+        Ok(TunnelBuilder {
             roost: None,
             secret_key,
             relay_urls: vec![],
-            isvc_client_secret: None,
-        }
+            isvc_api_secret,
+        })
+    }
+
+    pub fn api_secret(mut self, secret: Option<ApiSecret>) -> Self {
+        self.isvc_api_secret = secret;
+        self
     }
 
     pub async fn build(self) -> Result<Tunnel> {
@@ -76,10 +73,10 @@ impl TunnelBuilder {
         let endpoint = builder.bind().await?;
         tracing::info!("endpoint bound, id={}", endpoint.id());
 
-        let isvc_client = match self.isvc_client_secret {
+        let isvc_client = match self.isvc_api_secret {
             Some(secret) => {
                 let client = iroh_services::Client::builder(&endpoint)
-                    .api_secret_from_str(&secret)?
+                    .api_secret(secret)?
                     .build()
                     .await?;
                 Some(client)
@@ -118,13 +115,14 @@ pub struct Tunnel {
 }
 
 impl Tunnel {
-    pub fn builder_ephemeral() -> TunnelBuilder {
-        TunnelBuilder::default()
+    pub fn builder_ephemeral() -> Result<TunnelBuilder> {
+        TunnelBuilder::new(SecretKey::generate())
     }
 
     pub fn builder_from_ssh_dir(ssh_dir: PathBuf) -> Result<TunnelBuilder> {
         let secret_key = dot_ssh_secret_key(ssh_dir)?;
-        Ok(TunnelBuilder::new(secret_key))
+        let builder = TunnelBuilder::new(secret_key)?;
+        Ok(builder)
     }
 
     pub async fn fly(&self, remote: EndpointId) -> Result<()> {
@@ -242,4 +240,28 @@ where
         writer.flush().await?;
         total += n as u64;
     }
+}
+
+fn iroh_services_api_secret() -> Result<Option<ApiSecret>> {
+    if let Ok(env_secret) = std::env::var(iroh_services::API_SECRET_ENV_VAR_NAME) {
+        match ApiSecret::from_str(&env_secret) {
+            Ok(secret) => return Ok(Some(secret)),
+            Err(_) => {
+                warn!(
+                    "{} is defined but not valid",
+                    iroh_services::API_SECRET_ENV_VAR_NAME
+                );
+            }
+        }
+    }
+    // fall back to the embedded API secret, if one exists
+    if let Some(build_secret) = option_env!("BUILD_IROH_SERVICES_API_SECRET") {
+        match ApiSecret::from_str(build_secret) {
+            Ok(secret) => return Ok(Some(secret)),
+            Err(_) => {
+                warn!("build-embedded API secret is not valid");
+            }
+        }
+    }
+    Ok(None)
 }
