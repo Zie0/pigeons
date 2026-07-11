@@ -169,7 +169,10 @@ impl Tunnel {
         }
         match ret {
             Ok(result) => result,
-            Err(e) => Err(e.into()),
+            Err(e) => match e.try_into_panic() {
+                Ok(panic) => std::panic::resume_unwind(panic),
+                Err(e) => Err(e.into()),
+            },
         }
     }
 
