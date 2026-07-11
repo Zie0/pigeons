@@ -159,12 +159,18 @@ impl Tunnel {
         Ok(())
     }
 
-    pub async fn close_after(self, fut: impl Future<Output = Result<()>>) -> Result<()> {
-        let ret = fut.await;
+    pub async fn close_after(
+        self,
+        fut: impl Future<Output = Result<()>> + Send + 'static,
+    ) -> Result<()> {
+        let ret = tokio::spawn(fut).await;
         if let Err(e) = self.router.shutdown().await.context("shutting down router") {
             eprintln!("{e:#?}");
         }
-        ret
+        match ret {
+            Ok(result) => result,
+            Err(e) => Err(e.into()),
+        }
     }
 
     pub fn endpoint(&self) -> &Endpoint {
