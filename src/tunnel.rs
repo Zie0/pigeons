@@ -107,7 +107,7 @@ impl TunnelBuilder {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Tunnel {
     router: Router,
     #[allow(dead_code)]
@@ -159,8 +159,12 @@ impl Tunnel {
         Ok(())
     }
 
-    pub async fn close(&self) -> Result<()> {
-        self.router.shutdown().await.context("shutting down router")
+    pub async fn close_after(self, fut: impl Future<Output = Result<()>>) -> Result<()> {
+        let ret = fut.await;
+        if let Err(e) = self.router.shutdown().await.context("shutting down router") {
+            eprintln!("{e:#?}");
+        }
+        ret
     }
 
     pub fn endpoint(&self) -> &Endpoint {
