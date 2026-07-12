@@ -49,7 +49,7 @@ impl Config {
     }
 
     pub fn config_path() -> Result<PathBuf> {
-        let config_dir = dirs_next::config_dir()
+        let config_dir = dirs::config_dir()
             .context("can't figure out config dir on this system")?
             .join("pigeons");
         Ok(config_dir.join("config.toml"))
