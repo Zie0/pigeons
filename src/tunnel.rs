@@ -107,7 +107,7 @@ impl TunnelBuilder {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Tunnel {
     router: Router,
     #[allow(dead_code)]
@@ -161,6 +161,23 @@ impl Tunnel {
 
     pub async fn close(&self) -> Result<()> {
         self.router.shutdown().await.context("shutting down router")
+    }
+
+    pub async fn close_after(
+        self,
+        fut: impl Future<Output = Result<()>> + Send + 'static,
+    ) -> Result<()> {
+        let ret = tokio::spawn(fut).await;
+        if let Err(e) = self.close().await {
+            eprintln!("{e:#?}");
+        }
+        match ret {
+            Ok(result) => result,
+            Err(e) => match e.try_into_panic() {
+                Ok(panic) => std::panic::resume_unwind(panic),
+                Err(e) => Err(e.into()),
+            },
+        }
     }
 
     pub fn endpoint(&self) -> &Endpoint {
