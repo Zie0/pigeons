@@ -14,6 +14,7 @@ use tokio::{
 use tracing::warn;
 
 use crate::{
+    config::Config,
     protocol::PigeonsProtocol,
     ssh::{self, dot_ssh_secret_key},
 };
@@ -42,16 +43,19 @@ pub struct TunnelBuilder {
     pub relay_urls: Vec<RelayUrl>,
     /// iroh services client for telemetry aggregation
     pub isvc_api_secret: Option<ApiSecret>,
+    /// The pigeons config loaded from the toml file.
+    pub config: Config,
 }
 
 impl TunnelBuilder {
-    fn new(secret_key: SecretKey) -> Result<Self> {
-        let isvc_api_secret = iroh_services_api_secret()?;
+    fn new(secret_key: SecretKey, config: Config) -> Result<Self> {
+        let isvc_api_secret = iroh_services_api_secret(&config)?;
         Ok(TunnelBuilder {
             roost: None,
             secret_key,
             relay_urls: vec![],
             isvc_api_secret,
+            config,
         })
     }
 
@@ -116,12 +120,19 @@ pub struct Tunnel {
 
 impl Tunnel {
     pub fn builder_ephemeral() -> Result<TunnelBuilder> {
-        TunnelBuilder::new(SecretKey::generate())
+        TunnelBuilder::new(SecretKey::generate(), Config::default())
     }
 
-    pub fn builder_from_ssh_dir(ssh_dir: PathBuf) -> Result<TunnelBuilder> {
+    pub async fn builder_from_ssh_dir(ssh_dir: PathBuf) -> Result<TunnelBuilder> {
         let secret_key = dot_ssh_secret_key(ssh_dir)?;
-        let builder = TunnelBuilder::new(secret_key)?;
+        let config = match Config::load().await {
+            Ok(config) => config,
+            Err(err) => {
+                tracing::error!("failed to load config, using default: {err:#?}");
+                Config::default()
+            }
+        };
+        let builder = TunnelBuilder::new(secret_key, config)?;
         Ok(builder)
     }
 
@@ -259,7 +270,11 @@ where
     }
 }
 
-fn iroh_services_api_secret() -> Result<Option<ApiSecret>> {
+fn iroh_services_api_secret(config: &Config) -> Result<Option<ApiSecret>> {
+    if !config.telemetry_enabled() {
+        return Ok(None);
+    }
+
     if let Ok(env_secret) = std::env::var(iroh_services::API_SECRET_ENV_VAR_NAME) {
         match ApiSecret::from_str(&env_secret) {
             Ok(secret) => return Ok(Some(secret)),

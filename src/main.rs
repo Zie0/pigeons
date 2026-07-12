@@ -117,7 +117,7 @@ async fn main() -> anyhow::Result<()> {
             let mut builder = if args.ephemeral {
                 pigeons::Tunnel::builder_ephemeral()?
             } else {
-                pigeons::Tunnel::builder_from_ssh_dir(ssh_dir)?
+                pigeons::Tunnel::builder_from_ssh_dir(ssh_dir).await?
             };
             builder.roost = Some(pigeons::RoostConfig {
                 ssh_port: args.ssh_port,

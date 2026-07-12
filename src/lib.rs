@@ -1,3 +1,4 @@
+mod config;
 mod protocol;
 mod service;
 mod ssh;
