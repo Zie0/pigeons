@@ -2,6 +2,7 @@ use std::str::FromStr;
 
 use clap::{ArgAction, Args, Parser, Subcommand};
 use iroh::{EndpointId, RelayUrl};
+use pigeons::{Config, home_ssh_dir};
 
 const RELAY_URL_HELP: &str = "use this relay server, replacing the defaults (repeatable)";
 
@@ -34,6 +35,8 @@ pub enum Cmd {
     },
     /// Print the version number
     Version,
+    /// Print the paths used for config and other files
+    Paths,
 }
 
 #[derive(Subcommand, Clone, Debug)]
@@ -238,6 +241,15 @@ async fn main() -> anyhow::Result<()> {
         }
         Cmd::Version => {
             println!("pigeons v{}", env!("CARGO_PKG_VERSION"));
+            Ok(())
+        }
+        Cmd::Paths => {
+            println!("config: {:?}", Config::config_path()?);
+            let ssh_dir = home_ssh_dir()?;
+            let pub_key = ssh_dir.join("pigeons_ed25519.pub");
+            let priv_key = ssh_dir.join("pigeons_ed25519");
+            println!("ssh public key: {pub_key:?}");
+            println!("ssh private key: {priv_key:?}");
             Ok(())
         }
         Cmd::Service { op } => {

@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use anyhow::{Context as _, Result};
 use serde::{Deserialize, Serialize};
 use tokio::{
@@ -17,7 +19,8 @@ impl Config {
     }
 
     pub async fn load() -> Result<Self> {
-        let config_file_path = Self::ensure_config_dir().await?;
+        let config_file_path = Self::config_path()?;
+        tokio::fs::create_dir_all(config_file_path.parent().expect("joined path")).await?;
 
         let mut file = File::options()
             .read(true)
@@ -33,7 +36,8 @@ impl Config {
     }
 
     pub async fn store(&self) -> Result<()> {
-        let config_file_path = Self::ensure_config_dir().await?;
+        let config_file_path = Self::config_path()?;
+        tokio::fs::create_dir_all(config_file_path.parent().expect("joined path")).await?;
 
         let mut file = File::options()
             .write(true)
@@ -44,14 +48,11 @@ impl Config {
         Ok(())
     }
 
-    /// Ensures the directory for the config file exists and returns the config file path.
-    async fn ensure_config_dir() -> Result<std::path::PathBuf, anyhow::Error> {
+    pub fn config_path() -> Result<PathBuf> {
         let config_dir = dirs_next::config_dir()
             .context("can't figure out config dir on this system")?
             .join("pigeons");
-        tokio::fs::create_dir_all(&config_dir).await?;
-        let config_file_path = config_dir.join("config.toml");
-        Ok(config_file_path)
+        Ok(config_dir.join("config.toml"))
     }
 }
 
