@@ -22,10 +22,6 @@ roost is running! id: bb8e1a5661a6dfa9ae2dd978922f30f524f6fd8c99b3de021c53f292aa
 
 ## Installation
 
-```bash
-cargo install pigeons
-```
-
 Download the binary for your operating system from [GitHub Releases](https://github.com/n0-computer/pigeons/releases), or use our bash one-liner:
 
 ```bash
