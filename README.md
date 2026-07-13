@@ -47,27 +47,19 @@ Use `--ephemeral` for a throwaway identity, or `--ssh-port` if sshd is on a non-
 > pigeons roost --ephemeral --ssh-port 2222
 ```
 
-### Client (fly)
+### Client 
 
 The easiest way to connect is to add a pigeon route, which creates an SSH config entry:
 
 ```bash
 > pigeons add --id bb8e1a5661a6dfa9ae2dd978922f30f524f6fd8c99b3de021c53f292aae74330 --name my-server
 Pigeon route 'my-server' added to ~/.ssh/config
-
-  Fly with: ssh <user>@my-server
 ```
 
 Then connect with standard ssh:
 
 ```bash
 > ssh user@my-server
-```
-
-For a quick one-off connection without modifying ssh config:
-
-```bash
-> pigeons fly bb8e1a5661a6dfa9ae2dd978922f30f524f6fd8c99b3de021c53f292aae74330
 ```
 
 Works through any firewall, NAT, or private network. No configuration needed.

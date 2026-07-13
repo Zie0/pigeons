@@ -292,7 +292,6 @@ async fn main() -> anyhow::Result<()> {
                             println!("  Roost ID: {id}");
                             println!();
                             println!("  Connect with:");
-                            println!("    pigeons fly {id}");
                             println!("    pigeons add --id {id} --name my-roost");
                         }
                         None => {
