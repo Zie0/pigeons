@@ -24,6 +24,7 @@ impl Config {
 
         let mut file = File::options()
             .read(true)
+            .truncate(false)
             .create(true)
             .open(&config_file_path)
             .await?;
@@ -41,6 +42,7 @@ impl Config {
 
         let mut file = File::options()
             .write(true)
+            .truncate(false)
             .create(true)
             .open(config_file_path)
             .await?;
@@ -63,6 +65,6 @@ mod tests {
     #[test]
     fn empty_config() {
         let config = toml::from_str::<Config>("").unwrap();
-        assert_eq!(config.telemetry_enabled(), false);
+        assert!(!config.telemetry_enabled());
     }
 }
