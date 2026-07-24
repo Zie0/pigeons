@@ -2,6 +2,7 @@ use std::str::FromStr;
 
 use clap::{ArgAction, Args, Parser, Subcommand};
 use iroh::{EndpointId, RelayUrl};
+use pigeons::{Config, home_ssh_dir};
 
 const RELAY_URL_HELP: &str = "use this relay server, replacing the defaults (repeatable)";
 
@@ -34,6 +35,8 @@ pub enum Cmd {
     },
     /// Print the version number
     Version,
+    /// Print the paths used for config and other files
+    Paths,
 }
 
 #[derive(Subcommand, Clone, Debug)]
@@ -115,9 +118,9 @@ async fn main() -> anyhow::Result<()> {
         Cmd::Roost(args) => {
             let ssh_dir = pigeons::home_ssh_dir()?;
             let mut builder = if args.ephemeral {
-                pigeons::Tunnel::builder_ephemeral()?
+                pigeons::Tunnel::builder_ephemeral().await?
             } else {
-                pigeons::Tunnel::builder_from_ssh_dir(ssh_dir)?
+                pigeons::Tunnel::builder_from_ssh_dir(ssh_dir).await?
             };
             builder.roost = Some(pigeons::RoostConfig {
                 ssh_port: args.ssh_port,
@@ -158,7 +161,7 @@ async fn main() -> anyhow::Result<()> {
                 .await
         }
         Cmd::Fly(args) => {
-            let mut builder = pigeons::Tunnel::builder_ephemeral()?;
+            let mut builder = pigeons::Tunnel::builder_ephemeral().await?;
             for url in &args.relay_url {
                 builder.relay_urls.push(
                     RelayUrl::from_str(url)
@@ -238,6 +241,15 @@ async fn main() -> anyhow::Result<()> {
         }
         Cmd::Version => {
             println!("pigeons v{}", env!("CARGO_PKG_VERSION"));
+            Ok(())
+        }
+        Cmd::Paths => {
+            println!("config: {:?}", Config::config_path()?);
+            let ssh_dir = home_ssh_dir()?;
+            let pub_key = ssh_dir.join("pigeons_ed25519.pub");
+            let priv_key = ssh_dir.join("pigeons_ed25519");
+            println!("ssh public key: {pub_key:?}");
+            println!("ssh private key: {priv_key:?}");
             Ok(())
         }
         Cmd::Service { op } => {

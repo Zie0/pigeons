@@ -648,7 +648,7 @@ mod service_runtime {
             tracing::info!("spawning roost task");
 
             let ssh_dir = std::path::PathBuf::from(WindowsService::SERVICE_SSH_DIR);
-            let mut builder = match Tunnel::builder_from_ssh_dir(ssh_dir) {
+            let mut builder = match Tunnel::builder_from_ssh_dir(ssh_dir).await {
                 Ok(b) => b,
                 Err(err) => {
                     tracing::error!("failed to build tunnel from service ssh dir: {err:?}");
