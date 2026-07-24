@@ -35,7 +35,7 @@ args = [
 [tasks.test]
 workspace = false
 command = "cargo"
-args = ["nextest", "--all-features"]
+args = ["nextest", "run", "--all-features"]
 
 [tasks.test-coverage]
 workspace = false
