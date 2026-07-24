@@ -119,19 +119,14 @@ pub struct Tunnel {
 }
 
 impl Tunnel {
-    pub fn builder_ephemeral() -> Result<TunnelBuilder> {
-        TunnelBuilder::new(SecretKey::generate(), Config::default())
+    pub async fn builder_ephemeral() -> Result<TunnelBuilder> {
+        let config = Config::load_or_default().await;
+        TunnelBuilder::new(SecretKey::generate(), config)
     }
 
     pub async fn builder_from_ssh_dir(ssh_dir: PathBuf) -> Result<TunnelBuilder> {
         let secret_key = dot_ssh_secret_key(ssh_dir)?;
-        let config = match Config::load().await {
-            Ok(config) => config,
-            Err(err) => {
-                tracing::error!("failed to load config, using default: {err:#?}");
-                Config::default()
-            }
-        };
+        let config = Config::load_or_default().await;
         let builder = TunnelBuilder::new(secret_key, config)?;
         Ok(builder)
     }

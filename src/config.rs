@@ -32,8 +32,19 @@ impl Config {
         file.read_to_end(&mut config_bytes).await?;
 
         let config = toml::from_slice(&config_bytes)
-            .context(format!("failed parsing config at {config_file_path:?}"))?;
+            .with_context(|| format!("failed parsing config at {config_file_path:?}"))?;
         Ok(config)
+    }
+
+    /// Loads the config, falling back to the default config on error.
+    pub async fn load_or_default() -> Config {
+        match Config::load().await {
+            Ok(config) => config,
+            Err(err) => {
+                tracing::error!("failed to load config, using default: {err:#?}");
+                Config::default()
+            }
+        }
     }
 
     pub async fn store(&self) -> Result<()> {
@@ -42,7 +53,7 @@ impl Config {
 
         let mut file = File::options()
             .write(true)
-            .truncate(false)
+            .truncate(true)
             .create(true)
             .open(config_file_path)
             .await?;

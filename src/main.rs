@@ -118,7 +118,7 @@ async fn main() -> anyhow::Result<()> {
         Cmd::Roost(args) => {
             let ssh_dir = pigeons::home_ssh_dir()?;
             let mut builder = if args.ephemeral {
-                pigeons::Tunnel::builder_ephemeral()?
+                pigeons::Tunnel::builder_ephemeral().await?
             } else {
                 pigeons::Tunnel::builder_from_ssh_dir(ssh_dir).await?
             };
@@ -161,7 +161,7 @@ async fn main() -> anyhow::Result<()> {
                 .await
         }
         Cmd::Fly(args) => {
-            let mut builder = pigeons::Tunnel::builder_ephemeral()?;
+            let mut builder = pigeons::Tunnel::builder_ephemeral().await?;
             for url in &args.relay_url {
                 builder.relay_urls.push(
                     RelayUrl::from_str(url)
