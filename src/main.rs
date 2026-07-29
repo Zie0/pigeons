@@ -2,7 +2,11 @@ use std::str::FromStr;
 
 use clap::{ArgAction, Args, Parser, Subcommand};
 use iroh::{EndpointId, RelayUrl};
-use pigeons::{Config, home_ssh_dir};
+use iroh_pigeons::{
+    Config, RoostConfig, ServiceParams, Tunnel, add_tunnel_host, home_ssh_dir, install_service,
+    list_tunnel_hosts, remove_tunnel_host, resolve_binary_path, restart_service,
+    service_endpoint_id, service_log, uninstall_service,
+};
 
 const RELAY_URL_HELP: &str = "use this relay server, replacing the defaults (repeatable)";
 
@@ -116,13 +120,13 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.cmd {
         Cmd::Roost(args) => {
-            let ssh_dir = pigeons::home_ssh_dir()?;
+            let ssh_dir = home_ssh_dir()?;
             let mut builder = if args.ephemeral {
-                pigeons::Tunnel::builder_ephemeral().await?
+                Tunnel::builder_ephemeral().await?
             } else {
-                pigeons::Tunnel::builder_from_ssh_dir(ssh_dir).await?
+                Tunnel::builder_from_ssh_dir(ssh_dir).await?
             };
-            builder.roost = Some(pigeons::RoostConfig {
+            builder.roost = Some(RoostConfig {
                 ssh_port: args.ssh_port,
             });
             for url in &args.relay_url {
@@ -161,7 +165,7 @@ async fn main() -> anyhow::Result<()> {
                 .await
         }
         Cmd::Fly(args) => {
-            let mut builder = pigeons::Tunnel::builder_ephemeral().await?;
+            let mut builder = Tunnel::builder_ephemeral().await?;
             for url in &args.relay_url {
                 builder.relay_urls.push(
                     RelayUrl::from_str(url)
@@ -215,14 +219,15 @@ async fn main() -> anyhow::Result<()> {
                 );
             }
             let endpoint_id = EndpointId::from_str(&args.id)?;
-            pigeons::add_tunnel_host(name, &endpoint_id)?;
+            add_tunnel_host(name, &endpoint_id)?;
+
             println!("Pigeon route '{name}' added to ~/.ssh/config");
             println!();
             println!("  Fly with: ssh <user>@{name}");
             Ok(())
         }
         Cmd::List => {
-            let entries = pigeons::list_tunnel_hosts()?;
+            let entries = list_tunnel_hosts()?;
             if entries.is_empty() {
                 println!("No pigeon routes configured.");
             } else {
@@ -235,7 +240,7 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Cmd::Remove(args) => {
-            pigeons::remove_tunnel_host(&args.name)?;
+            remove_tunnel_host(&args.name)?;
             println!("Pigeon route '{}' removed.", args.name);
             Ok(())
         }
@@ -260,14 +265,14 @@ async fn main() -> anyhow::Result<()> {
                 } => {
                     // Resolve and validate the binary path *before* elevating,
                     // so the user sees any error in their own terminal.
-                    let binary_path = pigeons::resolve_binary_path()?;
+                    let binary_path = resolve_binary_path()?;
 
                     if !self_runas::is_elevated() {
                         self_runas::admin()?;
                         return Ok(());
                     }
 
-                    pigeons::install_service(pigeons::ServiceParams {
+                    install_service(ServiceParams {
                         ssh_port,
                         relay_url,
                         binary_path,
@@ -282,7 +287,7 @@ async fn main() -> anyhow::Result<()> {
                         return Ok(());
                     }
 
-                    pigeons::uninstall_service().await?;
+                    uninstall_service().await?;
                     println!("Pigeons service uninstalled.");
                     Ok(())
                 }
@@ -292,12 +297,12 @@ async fn main() -> anyhow::Result<()> {
                         return Ok(());
                     }
 
-                    pigeons::restart_service().await?;
+                    restart_service().await?;
                     println!("Pigeons service restarted.");
                     Ok(())
                 }
                 ServiceCmd::Status => {
-                    match pigeons::service_endpoint_id() {
+                    match service_endpoint_id() {
                         Some(id) => {
                             println!("Service:       running");
                             println!();
@@ -313,7 +318,7 @@ async fn main() -> anyhow::Result<()> {
                     Ok(())
                 }
                 ServiceCmd::Log => {
-                    pigeons::service_log()?;
+                    service_log()?;
                     Ok(())
                 }
             }

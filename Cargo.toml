@@ -1,5 +1,5 @@
 [package]
-name = "pigeons"
+name = "iroh-pigeons"
 description = "carrier pigeons for your SSH connections"
 license = "MIT"
 authors = ["b5 <sparkle_pony_2000@gmail.com>", "Zacharias Boehler <rustonbsd@mailfence.com>"]
@@ -13,7 +13,7 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.102"
 iroh = "1"
-ed25519-dalek = { version = "2.2.0", features = ["rand_core"] }
+ed25519-dalek = { version = ">=3.0.0-rc.0", features = ["rand_core"] }
 tokio-stream = { version = "0.1.18", features = ["sync"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["fmt", "ansi", "env-filter"] }
