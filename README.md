@@ -41,12 +41,16 @@ roost is running! id: bb8e1a5661a6dfa9ae2dd978922f30f524f6fd8c99b3de021c53f292aa
 > ssh user@my-server
 ```
 
-That's it. You only need `ssh` and `sshd` installed, as you already do.
+That's it. `ssh` and `sshd` need to be installed.
 
 Under the hood pigeons dials by public key over [iroh], which establishes a
 direct [QUIC] connection between the two machines, [hole-punching] whenever it
-can and falling back to relay servers when it cannot. Your SSH session rides
-that tunnel end-to-end.
+can and falling back to relay servers when it cannot.
+
+`pigeons add` writes a `Host` entry to your SSH config whose [`ProxyCommand`]
+runs `pigeons fly --stdio`, so `ssh` reaches the tunnel over that command's
+stdin and stdout. That is what lets you keep using `ssh` exactly as before —
+your keys, your config, your agent, all unchanged.
 
 ## Installation
 
@@ -191,5 +195,6 @@ shall be dual licensed as above, without any additional terms or conditions.
 [QUIC]: https://en.wikipedia.org/wiki/QUIC
 [hole-punching]: https://en.wikipedia.org/wiki/Hole_punching_(networking)
 [iroh]: https://github.com/n0-computer/iroh
+[`ProxyCommand`]: https://man.openbsd.org/ssh_config#ProxyCommand
 [Releases]: https://github.com/n0-computer/pigeons/releases
 [Rust Docs]: https://docs.rs/iroh-pigeons
