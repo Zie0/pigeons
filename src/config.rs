@@ -1,10 +1,13 @@
-use std::path::PathBuf;
+use std::{
+    io,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Context as _, Result};
 use serde::{Deserialize, Serialize};
 use tokio::{
     fs::{self, File},
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::AsyncWriteExt,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -19,21 +22,23 @@ impl Config {
     }
 
     pub async fn load() -> Result<Self> {
-        let config_file_path = Self::config_path()?;
-        fs::create_dir_all(config_file_path.parent().expect("joined path")).await?;
+        Self::load_from(&Self::config_path()?).await
+    }
 
-        let mut file = File::options()
-            .read(true)
-            .truncate(false)
-            .create(true)
-            .open(&config_file_path)
-            .await?;
-        let mut config_bytes = Vec::new();
-        file.read_to_end(&mut config_bytes).await?;
+    /// Read and parse the config at `path`. Loading is read-only: a config that
+    /// has not been written yet simply yields the defaults.
+    async fn load_from(path: &Path) -> Result<Self> {
+        let config_bytes = match fs::read(path).await {
+            Ok(bytes) => bytes,
+            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(Self::default()),
+            Err(err) => {
+                return Err(err)
+                    .with_context(|| format!("failed reading config at {}", path.display()));
+            }
+        };
 
-        let config = toml::from_slice(&config_bytes)
-            .with_context(|| format!("failed parsing config at {config_file_path:?}"))?;
-        Ok(config)
+        toml::from_slice(&config_bytes)
+            .with_context(|| format!("failed parsing config at {}", path.display()))
     }
 
     /// Loads the config, falling back to the default config on error.
@@ -77,5 +82,34 @@ mod tests {
     fn empty_config() {
         let config = toml::from_str::<Config>("").unwrap();
         assert!(!config.telemetry_enabled());
+    }
+
+    /// Not having written a config yet is the normal case, not an error.
+    #[tokio::test]
+    async fn load_from_missing_file_yields_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let config = Config::load_from(&dir.path().join("config.toml"))
+            .await
+            .unwrap();
+
+        assert!(!config.telemetry_enabled());
+    }
+
+    /// Regression: `load` used to open the file with `create(true)` and no write
+    /// access, which fails unconditionally, so settings on disk were silently
+    /// discarded in favour of the defaults.
+    #[tokio::test]
+    async fn load_from_reads_settings_off_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        fs::write(&path, "telemetry_enabled = true").await.unwrap();
+
+        let config = Config::load_from(&path).await.unwrap();
+
+        assert!(
+            config.telemetry_enabled(),
+            "settings on disk must take precedence over the defaults"
+        );
     }
 }
