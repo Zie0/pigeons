@@ -198,13 +198,12 @@ impl WindowsService {
             .context("failed to query service status")?;
         if status.current_state != ServiceState::Stopped
             && status.current_state != ServiceState::StopPending
+            && let Err(err) = service.stop()
         {
-            if let Err(err) = service.stop() {
-                match err {
-                    WinServiceError::Winapi(io_err)
-                        if io_err.raw_os_error() == Some(ERROR_SERVICE_NOT_ACTIVE as i32) => {}
-                    other => return Err(other).context("failed to stop service"),
-                }
+            match err {
+                WinServiceError::Winapi(io_err)
+                    if io_err.raw_os_error() == Some(ERROR_SERVICE_NOT_ACTIVE as i32) => {}
+                other => return Err(other).context("failed to stop service"),
             }
         }
 
@@ -463,7 +462,7 @@ impl WindowsService {
             }
 
             let mut new_acl: *mut ACL = ptr::null_mut();
-            let status = SetEntriesInAclW(1, &mut access, existing_dacl, &mut new_acl);
+            let status = SetEntriesInAclW(1, &access, existing_dacl, &mut new_acl);
             if status != ERROR_SUCCESS {
                 LocalFree(security_descriptor as _);
                 return Err(anyhow!(
@@ -720,6 +719,6 @@ mod service_runtime {
     }
 
     fn anyhow_to_win_error(error: anyhow::Error) -> WinServiceError {
-        WinServiceError::Winapi(io::Error::new(io::ErrorKind::Other, error.to_string()))
+        WinServiceError::Winapi(io::Error::other(error.to_string()))
     }
 }
