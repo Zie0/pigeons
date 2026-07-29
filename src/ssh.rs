@@ -28,9 +28,8 @@ pub async fn dot_ssh_secret_key(ssh_dir: PathBuf) -> anyhow::Result<SecretKey> {
         let secret_key = fs::read(&priv_key)
             .await
             .with_context(|| format!("failed to read secret key from {}", priv_key.display()))?;
-        let mut sk_bytes = [0u8; SECRET_KEY_LENGTH];
-        sk_bytes.copy_from_slice(z32::decode(secret_key.as_slice())?.as_slice());
-        Ok(SecretKey::from_bytes(&sk_bytes))
+        Ok(decode_secret_key(&secret_key)
+            .with_context(|| format!("failed to load secret key from {}", priv_key.display()))?)
     } else {
         tracing::info!("generating new keys in {}", ssh_dir.display());
         let secret_key = SecretKey::generate();
@@ -41,6 +40,22 @@ pub async fn dot_ssh_secret_key(ssh_dir: PathBuf) -> anyhow::Result<SecretKey> {
 
         Ok(secret_key)
     }
+}
+
+/// Decode a z32-encoded secret key.
+///
+/// The length is checked rather than assumed: a truncated or otherwise corrupt
+/// key file is a plausible on-disk state, and copying it into a fixed-size
+/// buffer would abort the process instead of reporting the bad file.
+fn decode_secret_key(encoded: &[u8]) -> anyhow::Result<SecretKey> {
+    let decoded = z32::decode(encoded).context("secret key is not valid z32")?;
+    let sk_bytes: [u8; SECRET_KEY_LENGTH] = decoded.as_slice().try_into().map_err(|_| {
+        anyhow::anyhow!(
+            "secret key is {} bytes, expected {SECRET_KEY_LENGTH}",
+            decoded.len()
+        )
+    })?;
+    Ok(SecretKey::from_bytes(&sk_bytes))
 }
 
 fn ssh_config_path() -> anyhow::Result<PathBuf> {
@@ -254,5 +269,38 @@ pub(crate) async fn ensure_local_ssh_server_exists(ssh_port: u16) -> anyhow::Res
         Err(_) => Err(anyhow::anyhow!(format!(
             "no sshd detected on port {ssh_port}. Make sure sshd is running before sending pigeons to this roost",
         ))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decode_secret_key_round_trips() {
+        let key = SecretKey::generate();
+        let encoded = z32::encode(&key.to_bytes());
+
+        let decoded = decode_secret_key(encoded.as_bytes()).unwrap();
+
+        assert_eq!(decoded.to_bytes(), key.to_bytes());
+    }
+
+    /// Regression: a short key used to be copied into a fixed-size buffer,
+    /// which aborted the process instead of reporting the corrupt file.
+    #[test]
+    fn decode_secret_key_rejects_truncated_key() {
+        let key = SecretKey::generate();
+        let encoded = z32::encode(&key.to_bytes());
+        let truncated = &encoded.as_bytes()[..encoded.len() - 8];
+
+        let err = decode_secret_key(truncated).unwrap_err().to_string();
+
+        assert!(err.contains("expected 32"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn decode_secret_key_rejects_garbage() {
+        assert!(decode_secret_key(b"not z32 at all!!").is_err());
     }
 }
