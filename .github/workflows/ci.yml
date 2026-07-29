@@ -10,7 +10,6 @@ on:
       - main
 
 env:
-  MSRV: "1.89"
   RUST_BACKTRACE: 1
   RUSTFLAGS: -Dwarnings
   IROH_FORCE_STAGING_RELAYS: "1"
@@ -20,14 +19,37 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  lint:
+  # Driven through `cargo make` so CI applies the same rustfmt options
+  # (import grouping and granularity) that contributors get locally.
+  fmt:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
       - uses: swatinem/rust-cache@v2
-      - name: cargo fmt
-        run: cargo fmt --all -- --check
+      - uses: taiki-e/install-action@cargo-make
+      - name: cargo make format-check
+        run: cargo make format-check
+
+  # The service backends are `cfg`-gated per platform, so clippy only ever sees
+  # the backend for the host it runs on. Run it on every platform we support.
+  lint:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - "ubuntu-latest"
+          - "macOS-latest"
+          - "windows-latest"
+    steps:
+      - uses: actions/checkout@v2
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: swatinem/rust-cache@v2
       - name: cargo clippy
         run: cargo clippy --locked --workspace --all-targets --all-features
 
@@ -72,3 +94,22 @@ jobs:
       - uses: swatinem/rust-cache@v2
       - name: cargo check
         run: cargo check --workspace --all-features --bins
+
+  # Verifies the crate still builds on the oldest supported compiler. The version
+  # is read from `rust-version` in Cargo.toml so there is a single source of truth.
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Read MSRV from Cargo.toml
+        id: msrv
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 | jq -er '.packages[0].rust_version')
+          echo "Cargo.toml declares rust-version = ${version}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+      - uses: swatinem/rust-cache@v2
+      - name: cargo check
+        run: cargo check --locked --workspace --all-features --all-targets
