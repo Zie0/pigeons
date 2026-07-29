@@ -130,10 +130,10 @@ impl WindowsService {
     pub(crate) const SERVICE_DESCRIPTION: &'static str = "carrier pigeons for your SSH connections";
     pub(crate) const SERVICE_ACCOUNT: &'static str = "NT SERVICE\\pigeons";
     pub(crate) const SERVICE_DEPENDENCY: &'static str = "sshd";
-    pub(crate) const INSTALL_ROOT: &'static str = r"C:\\ProgramData\\pigeons";
+    pub(crate) const INSTALL_ROOT: &'static str = r"C:\ProgramData\pigeons";
     pub(crate) const SERVICE_BINARY_NAME: &'static str = "pigeons.exe";
-    pub(crate) const SERVICE_PROFILE_ROOT: &'static str = r"C:\\Windows\\ServiceProfiles\\pigeons";
-    pub(crate) const SERVICE_SSH_DIR: &'static str = r"C:\\Windows\\ServiceProfiles\\pigeons\\.ssh";
+    pub(crate) const SERVICE_PROFILE_ROOT: &'static str = r"C:\Windows\ServiceProfiles\pigeons";
+    pub(crate) const SERVICE_SSH_DIR: &'static str = r"C:\Windows\ServiceProfiles\pigeons\.ssh";
 
     fn install_blocking(service_params: ServiceParams) -> anyhow::Result<()> {
         let staged_binary = Self::stage_binary().context("failed to stage service binary")?;
