@@ -11,6 +11,16 @@ use tokio::{fs, signal};
 
 const RELAY_URL_HELP: &str = "use this relay server, replacing the defaults (repeatable)";
 
+/// Derive a route name from an endpoint ID for when `--name` is omitted.
+///
+/// Truncation counts characters rather than bytes: the ID is unvalidated user
+/// input at this point, and slicing it by byte index panics whenever the cut
+/// lands inside a multi-byte character.
+fn default_route_name(id: &str) -> String {
+    let prefix: String = id.chars().take(8).collect();
+    format!("pigeon-{prefix}")
+}
+
 #[derive(Parser, Debug)]
 #[command(
     name = "pigeons",
@@ -201,10 +211,7 @@ async fn main() -> anyhow::Result<()> {
                 .await
         }
         Cmd::Add(args) => {
-            let name = args.name.unwrap_or_else(|| {
-                let id = &args.id;
-                format!("pigeon-{}", &id[..8.min(id.len())])
-            });
+            let name = args.name.unwrap_or_else(|| default_route_name(&args.id));
             let name = name.trim();
             if name.is_empty() {
                 anyhow::bail!("host name cannot be empty");
@@ -325,5 +332,35 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_route_name_uses_id_prefix() {
+        assert_eq!(
+            default_route_name("bb8e1a5661a6dfa9ae2dd978922f30f5"),
+            "pigeon-bb8e1a56"
+        );
+    }
+
+    #[test]
+    fn default_route_name_handles_short_ids() {
+        assert_eq!(default_route_name("abc"), "pigeon-abc");
+        assert_eq!(default_route_name(""), "pigeon-");
+    }
+
+    /// Regression: the ID is not validated until after the name is derived, so
+    /// truncating it by byte index panicked on any multi-byte input.
+    #[test]
+    fn default_route_name_does_not_split_multibyte_characters() {
+        // 9 characters in, 8 characters out — and crucially, no panic.
+        assert_eq!(
+            default_route_name("日本語テストデータ"),
+            "pigeon-日本語テストデー"
+        );
     }
 }
