@@ -30,7 +30,7 @@ impl Service for MacosService {
     }
 
     async fn info() -> anyhow::Result<()> {
-        todo!("service info is not yet supported")
+        anyhow::bail!("service info is not yet supported")
     }
 
     async fn uninstall() -> anyhow::Result<()> {
