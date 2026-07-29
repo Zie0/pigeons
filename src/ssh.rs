@@ -64,6 +64,13 @@ async fn write_secret_key(path: &Path, encoded: &str) -> anyhow::Result<()> {
         file.write_all(encoded.as_bytes())
             .await
             .with_context(|| format!("failed to write {}", path.display()))?;
+        // Dropping a tokio `File` does not flush it: writes are dispatched to a
+        // blocking pool and can still be in flight. Without this the key can be
+        // read back empty or truncated, and would be lost outright if the
+        // process exited here.
+        file.sync_all()
+            .await
+            .with_context(|| format!("failed to flush {}", path.display()))?;
     }
     #[cfg(not(unix))]
     {
