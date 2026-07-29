@@ -11,10 +11,7 @@ use tokio::{fs, net::TcpStream};
 
 pub fn home_ssh_dir() -> anyhow::Result<PathBuf> {
     let distro_home = my_home()?.ok_or_else(|| anyhow::anyhow!("home directory not found"))?;
-    #[allow(unused_mut, reason = "mutated only under some target configurations")]
-    let mut ssh_dir = distro_home.join(".ssh");
-
-    Ok(ssh_dir)
+    Ok(distro_home.join(".ssh"))
 }
 
 pub async fn dot_ssh_secret_key(ssh_dir: PathBuf) -> anyhow::Result<SecretKey> {
