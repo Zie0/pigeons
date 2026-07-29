@@ -10,6 +10,11 @@ categories = ["network-programming"]
 version = "0.1.1"
 edition = "2024"
 
+# The crate is published as `iroh-pigeons`, but the CLI is invoked as `pigeons`.
+[[bin]]
+name = "pigeons"
+path = "src/main.rs"
+
 [dependencies]
 anyhow = "1.0.102"
 iroh = "1"

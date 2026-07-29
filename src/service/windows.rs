@@ -1,5 +1,4 @@
 use anyhow::{Context, anyhow, bail};
-use tokio::fs;
 
 use crate::{Service, ServiceParams};
 
@@ -564,7 +563,7 @@ impl WindowsService {
 mod service_runtime {
     use std::{ffi::OsString, io, sync::mpsc, time::Duration};
 
-    use tokio::runtime::Builder;
+    use tokio::{fs, runtime::Builder};
     use windows_service::{
         Result as WinResult, define_windows_service,
         service::{
