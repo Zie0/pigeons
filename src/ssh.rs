@@ -124,8 +124,11 @@ pub async fn add_tunnel_host(name: &str, endpoint_id: &PublicKey) -> anyhow::Res
         String::new()
     };
 
-    // Remove existing entry for this name if present (ignore error — may not exist yet)
-    let cleaned = remove_host_block(&existing, name).unwrap_or_else(|_| existing.clone());
+    // Drop any existing pigeon entry for this name so we replace rather than
+    // duplicate it. A name already taken by a host that isn't ours is an error:
+    // appending anyway would leave two `Host` blocks, and ssh honours the first,
+    // so the new route would be silently ignored.
+    let cleaned = remove_host_block(&existing, name)?;
 
     let block = format!(
         "Host {name}\n\
@@ -362,5 +365,48 @@ mod tests {
             .mode();
 
         assert_eq!(mode & 0o777, 0o600, "got mode {:o}", mode & 0o777);
+    }
+
+    const PIGEON_BLOCK: &str = "Host my-server\n    ProxyCommand pigeons fly --stdio ABC\n";
+
+    #[test]
+    fn remove_host_block_leaves_content_alone_when_host_is_absent() {
+        let content = "Host other\n    HostName example.com\n";
+
+        assert_eq!(remove_host_block(content, "my-server").unwrap(), content);
+    }
+
+    #[test]
+    fn remove_host_block_removes_a_pigeon_entry() {
+        assert_eq!(remove_host_block(PIGEON_BLOCK, "my-server").unwrap(), "");
+    }
+
+    /// Adding a route reuses this to replace an existing entry. A name already
+    /// taken by a host that isn't ours has to be rejected: appending regardless
+    /// would leave two `Host` blocks, and ssh honours the first, so the new
+    /// route would never take effect.
+    #[test]
+    fn remove_host_block_rejects_a_host_that_is_not_ours() {
+        let content = "Host my-server\n    HostName example.com\n";
+
+        let err = remove_host_block(content, "my-server")
+            .unwrap_err()
+            .to_string();
+
+        assert!(err.contains("not configured to use pigeons"), "got: {err}");
+    }
+
+    #[test]
+    fn remove_host_block_keeps_unrelated_hosts() {
+        let keep = "Host keep-me\n    HostName example.com\n";
+
+        assert_eq!(
+            remove_host_block(&format!("{keep}{PIGEON_BLOCK}"), "my-server").unwrap(),
+            keep
+        );
+        assert_eq!(
+            remove_host_block(&format!("{PIGEON_BLOCK}{keep}"), "my-server").unwrap(),
+            keep
+        );
     }
 }
