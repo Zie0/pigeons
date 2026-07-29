@@ -13,6 +13,8 @@ use crate::service::macos::MacosService;
 #[cfg(target_os = "windows")]
 #[allow(dead_code)]
 mod windows;
+use tokio::fs;
+
 #[cfg(target_os = "windows")]
 pub(crate) use crate::service::windows::WindowsService;
 
@@ -117,7 +119,7 @@ pub async fn restart() -> anyhow::Result<()> {
 /// The roost writes the endpoint ID string to /etc/pigeons/endpoint_id
 /// on startup when running as root (service mode).
 /// Returns Some(endpoint_id) if found, None otherwise.
-pub fn service_endpoint_id() -> Option<iroh::EndpointId> {
+pub async fn service_endpoint_id() -> Option<iroh::EndpointId> {
     let content = match std::env::consts::OS {
         "linux" => "/etc/pigeons/endpoint_id",
         "macos" => "/etc/pigeons/endpoint_id",
@@ -129,7 +131,7 @@ pub fn service_endpoint_id() -> Option<iroh::EndpointId> {
             return None;
         }
     };
-    let content = std::fs::read_to_string(content).ok()?;
+    let content = fs::read_to_string(content).await.ok()?;
     content.trim().parse().ok()
 }
 

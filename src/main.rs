@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{path::Path, str::FromStr};
 
 use clap::{ArgAction, Args, Parser, Subcommand};
 use iroh::{EndpointId, RelayUrl};
@@ -7,6 +7,7 @@ use iroh_pigeons::{
     list_tunnel_hosts, remove_tunnel_host, resolve_binary_path, restart_service,
     service_endpoint_id, service_log, uninstall_service,
 };
+use tokio::fs;
 
 const RELAY_URL_HELP: &str = "use this relay server, replacing the defaults (repeatable)";
 
@@ -144,17 +145,18 @@ async fn main() -> anyhow::Result<()> {
                     // If running as root (service mode), publish the endpoint ID
                     // so unprivileged users can read it via 'pigeons status'
                     if self_runas::is_elevated() {
-                        let dir = std::path::Path::new("/etc/pigeons");
-                        std::fs::create_dir_all(dir)?;
-                        std::fs::write(dir.join("endpoint_id"), id.to_string().as_bytes())?;
+                        let dir = Path::new("/etc/pigeons");
+                        fs::create_dir_all(dir).await?;
+                        fs::write(dir.join("endpoint_id"), id.to_string().as_bytes()).await?;
                         // world-readable
                         #[cfg(unix)]
                         {
                             use std::os::unix::fs::PermissionsExt;
-                            std::fs::set_permissions(
+                            fs::set_permissions(
                                 dir.join("endpoint_id"),
                                 std::fs::Permissions::from_mode(0o644),
-                            )?;
+                            )
+                            .await?;
                         }
                     }
 
@@ -219,7 +221,7 @@ async fn main() -> anyhow::Result<()> {
                 );
             }
             let endpoint_id = EndpointId::from_str(&args.id)?;
-            add_tunnel_host(name, &endpoint_id)?;
+            add_tunnel_host(name, &endpoint_id).await?;
 
             println!("Pigeon route '{name}' added to ~/.ssh/config");
             println!();
@@ -227,7 +229,7 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Cmd::List => {
-            let entries = list_tunnel_hosts()?;
+            let entries = list_tunnel_hosts().await?;
             if entries.is_empty() {
                 println!("No pigeon routes configured.");
             } else {
@@ -240,7 +242,7 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Cmd::Remove(args) => {
-            remove_tunnel_host(&args.name)?;
+            remove_tunnel_host(&args.name).await?;
             println!("Pigeon route '{}' removed.", args.name);
             Ok(())
         }
@@ -302,7 +304,7 @@ async fn main() -> anyhow::Result<()> {
                     Ok(())
                 }
                 ServiceCmd::Status => {
-                    match service_endpoint_id() {
+                    match service_endpoint_id().await {
                         Some(id) => {
                             println!("Service:       running");
                             println!();

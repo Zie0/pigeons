@@ -125,7 +125,7 @@ impl Tunnel {
     }
 
     pub async fn builder_from_ssh_dir(ssh_dir: PathBuf) -> Result<TunnelBuilder> {
-        let secret_key = dot_ssh_secret_key(ssh_dir)?;
+        let secret_key = dot_ssh_secret_key(ssh_dir).await?;
         let config = Config::load_or_default().await;
         let builder = TunnelBuilder::new(secret_key, config)?;
         Ok(builder)

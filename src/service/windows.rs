@@ -1,4 +1,5 @@
 use anyhow::{Context, anyhow, bail};
+use tokio::fs;
 
 use crate::{Service, ServiceParams};
 
@@ -669,11 +670,11 @@ mod service_runtime {
 
                     // Publish endpoint ID for `pigeons service status`
                     let dir = std::path::Path::new(WindowsService::INSTALL_ROOT);
-                    if let Err(err) = std::fs::create_dir_all(dir) {
+                    if let Err(err) = fs::create_dir_all(dir).await {
                         tracing::warn!("failed to create {}: {err}", dir.display());
                     }
                     if let Err(err) =
-                        std::fs::write(dir.join("endpoint_id"), id.to_string().as_bytes())
+                        fs::write(dir.join("endpoint_id"), id.to_string().as_bytes()).await
                     {
                         tracing::warn!("failed to write endpoint_id: {err}");
                     }

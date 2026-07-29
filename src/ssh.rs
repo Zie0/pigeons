@@ -4,7 +4,7 @@ use anyhow::{Context, bail};
 use ed25519_dalek::SECRET_KEY_LENGTH;
 use homedir::my_home;
 use iroh::{PublicKey, SecretKey};
-use tokio::net::TcpStream;
+use tokio::{fs, net::TcpStream};
 
 pub fn home_ssh_dir() -> anyhow::Result<PathBuf> {
     let distro_home = my_home()?.ok_or_else(|| anyhow::anyhow!("home directory not found"))?;
@@ -14,18 +14,19 @@ pub fn home_ssh_dir() -> anyhow::Result<PathBuf> {
     Ok(ssh_dir)
 }
 
-pub fn dot_ssh_secret_key(ssh_dir: PathBuf) -> anyhow::Result<SecretKey> {
+pub async fn dot_ssh_secret_key(ssh_dir: PathBuf) -> anyhow::Result<SecretKey> {
     let pub_key = ssh_dir.join("pigeons_ed25519.pub");
     let priv_key = ssh_dir.join("pigeons_ed25519");
 
     if !ssh_dir.exists() {
         tracing::info!("creating ssh directory: {}", ssh_dir.display());
-        std::fs::create_dir_all(&ssh_dir)?;
+        fs::create_dir_all(&ssh_dir).await?;
     }
 
     if pub_key.exists() && priv_key.exists() {
         tracing::debug!("loading existing keys from {}", ssh_dir.display());
-        let secret_key = std::fs::read(&priv_key)
+        let secret_key = fs::read(&priv_key)
+            .await
             .with_context(|| format!("failed to read secret key from {}", priv_key.display()))?;
         let mut sk_bytes = [0u8; SECRET_KEY_LENGTH];
         sk_bytes.copy_from_slice(z32::decode(secret_key.as_slice())?.as_slice());
@@ -35,8 +36,8 @@ pub fn dot_ssh_secret_key(ssh_dir: PathBuf) -> anyhow::Result<SecretKey> {
         let secret_key = SecretKey::generate();
         let public_key = secret_key.public();
 
-        std::fs::write(&pub_key, z32::encode(public_key.as_bytes()))?;
-        std::fs::write(&priv_key, z32::encode(&secret_key.to_bytes()))?;
+        fs::write(&pub_key, z32::encode(public_key.as_bytes())).await?;
+        fs::write(&priv_key, z32::encode(&secret_key.to_bytes())).await?;
 
         Ok(secret_key)
     }
@@ -60,16 +61,17 @@ impl fmt::Display for SshConfigPigeonEntry {
 }
 
 /// Add or update a pigeon host entry in ~/.ssh/config using ProxyCommand
-pub fn add_tunnel_host(name: &str, endpoint_id: &PublicKey) -> anyhow::Result<()> {
+pub async fn add_tunnel_host(name: &str, endpoint_id: &PublicKey) -> anyhow::Result<()> {
     tracing::debug!("adding tunnel host name={name} endpoint={endpoint_id}");
     let config_path = ssh_config_path()?;
 
     if let Some(parent) = config_path.parent() {
-        std::fs::create_dir_all(parent)?;
+        fs::create_dir_all(parent).await?;
     }
 
     let existing = if config_path.exists() {
-        std::fs::read_to_string(&config_path)
+        fs::read_to_string(&config_path)
+            .await
             .with_context(|| format!("failed to read {}", config_path.display()))?
     } else {
         String::new()
@@ -94,11 +96,11 @@ pub fn add_tunnel_host(name: &str, endpoint_id: &PublicKey) -> anyhow::Result<()
     }
     new_content.push_str(&block);
 
-    atomic_write(&config_path, &new_content)
+    atomic_write(&config_path, &new_content).await
 }
 
 /// Remove a pigeon host entry from ~/.ssh/config
-pub fn remove_tunnel_host(name: &str) -> anyhow::Result<()> {
+pub async fn remove_tunnel_host(name: &str) -> anyhow::Result<()> {
     tracing::debug!("removing tunnel host name={name}");
     let config_path = ssh_config_path()?;
 
@@ -106,7 +108,8 @@ pub fn remove_tunnel_host(name: &str) -> anyhow::Result<()> {
         bail!("no ssh config found at {}", config_path.display());
     }
 
-    let existing = std::fs::read_to_string(&config_path)
+    let existing = fs::read_to_string(&config_path)
+        .await
         .with_context(|| format!("failed to read {}", config_path.display()))?;
 
     let cleaned = remove_host_block(&existing, name)?;
@@ -115,19 +118,20 @@ pub fn remove_tunnel_host(name: &str) -> anyhow::Result<()> {
         bail!("no host '{name}' found in ssh config");
     }
 
-    atomic_write(&config_path, &cleaned)
+    atomic_write(&config_path, &cleaned).await
 }
 
 /// List all pigeons-managed entries in ~/.ssh/config by finding Host blocks
 /// whose ProxyCommand starts with "pigeons fly"
-pub fn list_tunnel_hosts() -> anyhow::Result<Vec<SshConfigPigeonEntry>> {
+pub async fn list_tunnel_hosts() -> anyhow::Result<Vec<SshConfigPigeonEntry>> {
     let config_path = ssh_config_path()?;
 
     if !config_path.exists() {
         return Ok(Vec::new());
     }
 
-    let content = std::fs::read_to_string(&config_path)
+    let content = fs::read_to_string(&config_path)
+        .await
         .with_context(|| format!("failed to read {}", config_path.display()))?;
 
     let mut entries = Vec::new();
@@ -228,12 +232,14 @@ fn remove_host_block(content: &str, name: &str) -> anyhow::Result<String> {
     Ok(result)
 }
 
-fn atomic_write(path: &PathBuf, content: &str) -> anyhow::Result<()> {
+async fn atomic_write(path: &PathBuf, content: &str) -> anyhow::Result<()> {
     let dir = path.parent().unwrap();
     let temp_path = dir.join(".config.pigeons.tmp");
-    std::fs::write(&temp_path, content)
+    fs::write(&temp_path, content)
+        .await
         .with_context(|| format!("failed to write {}", temp_path.display()))?;
-    std::fs::rename(&temp_path, path)
+    fs::rename(&temp_path, path)
+        .await
         .with_context(|| format!("failed to rename temp file to {}", path.display()))?;
     Ok(())
 }
