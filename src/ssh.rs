@@ -1,4 +1,7 @@
-use std::{fmt, path::PathBuf};
+use std::{
+    fmt,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Context, bail};
 use ed25519_dalek::SECRET_KEY_LENGTH;
@@ -36,10 +39,42 @@ pub async fn dot_ssh_secret_key(ssh_dir: PathBuf) -> anyhow::Result<SecretKey> {
         let public_key = secret_key.public();
 
         fs::write(&pub_key, z32::encode(public_key.as_bytes())).await?;
-        fs::write(&priv_key, z32::encode(&secret_key.to_bytes())).await?;
+        write_secret_key(&priv_key, &z32::encode(&secret_key.to_bytes())).await?;
 
         Ok(secret_key)
     }
+}
+
+/// Write the secret key, readable only by its owner on unix.
+///
+/// This key is the roost's identity, so anyone able to read it can impersonate
+/// the roost. The mode is set as the file is created rather than afterwards, so
+/// there is no window in which the key sits on disk world-readable.
+async fn write_secret_key(path: &Path, encoded: &str) -> anyhow::Result<()> {
+    #[cfg(unix)]
+    {
+        use tokio::io::AsyncWriteExt as _;
+
+        // `mode` is an inherent method on tokio's unix OpenOptions.
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)
+            .await
+            .with_context(|| format!("failed to create {}", path.display()))?;
+        file.write_all(encoded.as_bytes())
+            .await
+            .with_context(|| format!("failed to write {}", path.display()))?;
+    }
+    #[cfg(not(unix))]
+    {
+        fs::write(path, encoded)
+            .await
+            .with_context(|| format!("failed to write {}", path.display()))?;
+    }
+    Ok(())
 }
 
 /// Decode a z32-encoded secret key.
@@ -302,5 +337,33 @@ mod tests {
     #[test]
     fn decode_secret_key_rejects_garbage() {
         assert!(decode_secret_key(b"not z32 at all!!").is_err());
+    }
+
+    #[tokio::test]
+    async fn generated_key_is_reloaded_not_regenerated() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let generated = dot_ssh_secret_key(dir.path().to_path_buf()).await.unwrap();
+        let reloaded = dot_ssh_secret_key(dir.path().to_path_buf()).await.unwrap();
+
+        assert_eq!(generated.to_bytes(), reloaded.to_bytes());
+    }
+
+    /// The key is the roost's identity, so anyone who can read it can
+    /// impersonate the roost. It must not be group- or world-readable.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn generated_key_is_owner_readable_only() {
+        use std::{fs::metadata, os::unix::fs::PermissionsExt as _};
+
+        let dir = tempfile::tempdir().unwrap();
+        dot_ssh_secret_key(dir.path().to_path_buf()).await.unwrap();
+
+        let mode = metadata(dir.path().join("pigeons_ed25519"))
+            .unwrap()
+            .permissions()
+            .mode();
+
+        assert_eq!(mode & 0o777, 0o600, "got mode {:o}", mode & 0o777);
     }
 }
