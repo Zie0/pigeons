@@ -171,6 +171,8 @@ as `iroh-pigeons` while the CLI it installs is called `pigeons`.
 
 Copyright 2025 fun with rust y2
 
+Copyright 2026 N0, INC.
+
 This project is licensed under either of
 
  * Apache License, Version 2.0, ([LICENSE-APACHE](LICENSE-APACHE) or
