@@ -9,6 +9,22 @@ keywords = ["networking"]
 categories = ["network-programming"]
 version = "0.1.1"
 edition = "2024"
+rust-version = "1.91"
+
+[lints.rust]
+elided_lifetimes_in_paths = "warn"
+unnameable_types = "warn"
+unreachable_pub = "warn"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+or_fun_call = "warn"
+use_self = "warn"
+unused_async = "warn"
+absolute_paths = "warn"
+manual_let_else = "warn"
+allow_attributes_without_reason = "warn"
+mod_module_files = "deny"
 
 # The crate is published as `iroh-pigeons`, but the CLI is invoked as `pigeons`.
 [[bin]]

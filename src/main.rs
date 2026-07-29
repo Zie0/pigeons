@@ -1,4 +1,4 @@
-use std::{path::Path, str::FromStr};
+use std::{io, path::Path, str::FromStr};
 
 use clap::{ArgAction, Args, Parser, Subcommand};
 use iroh::{EndpointId, RelayUrl};
@@ -7,7 +7,7 @@ use iroh_pigeons::{
     list_tunnel_hosts, remove_tunnel_host, resolve_binary_path, restart_service,
     service_endpoint_id, service_log, uninstall_service,
 };
-use tokio::fs;
+use tokio::{fs, signal};
 
 const RELAY_URL_HELP: &str = "use this relay server, replacing the defaults (repeatable)";
 
@@ -114,7 +114,7 @@ pub struct RemoveArgs {
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .with_writer(std::io::stderr)
+        .with_writer(io::stderr)
         .init();
 
     let cli = Cli::parse();
@@ -151,17 +151,17 @@ async fn main() -> anyhow::Result<()> {
                         // world-readable
                         #[cfg(unix)]
                         {
-                            use std::os::unix::fs::PermissionsExt;
+                            use std::{fs::Permissions, os::unix::fs::PermissionsExt};
                             fs::set_permissions(
                                 dir.join("endpoint_id"),
-                                std::fs::Permissions::from_mode(0o644),
+                                Permissions::from_mode(0o644),
                             )
                             .await?;
                         }
                     }
 
                     println!("roost is running! id: {}", id);
-                    tokio::signal::ctrl_c().await?;
+                    signal::ctrl_c().await?;
                     Ok(())
                 })
                 .await
@@ -190,7 +190,7 @@ async fn main() -> anyhow::Result<()> {
                                     eprintln!("error: {err}");
                                 };
                             }
-                            _ = tokio::signal::ctrl_c() => {
+                            _ = signal::ctrl_c() => {
                                 println!("shutting down...");
                             }
                         };

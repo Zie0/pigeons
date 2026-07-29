@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use anyhow::{Context as _, Result};
 use serde::{Deserialize, Serialize};
 use tokio::{
-    fs::File,
+    fs::{self, File},
     io::{AsyncReadExt, AsyncWriteExt},
 };
 
@@ -20,7 +20,7 @@ impl Config {
 
     pub async fn load() -> Result<Self> {
         let config_file_path = Self::config_path()?;
-        tokio::fs::create_dir_all(config_file_path.parent().expect("joined path")).await?;
+        fs::create_dir_all(config_file_path.parent().expect("joined path")).await?;
 
         let mut file = File::options()
             .read(true)
@@ -37,19 +37,19 @@ impl Config {
     }
 
     /// Loads the config, falling back to the default config on error.
-    pub async fn load_or_default() -> Config {
-        match Config::load().await {
+    pub async fn load_or_default() -> Self {
+        match Self::load().await {
             Ok(config) => config,
             Err(err) => {
                 tracing::error!("failed to load config, using default: {err:#?}");
-                Config::default()
+                Self::default()
             }
         }
     }
 
     pub async fn store(&self) -> Result<()> {
         let config_file_path = Self::config_path()?;
-        tokio::fs::create_dir_all(config_file_path.parent().expect("joined path")).await?;
+        fs::create_dir_all(config_file_path.parent().expect("joined path")).await?;
 
         let mut file = File::options()
             .write(true)

@@ -1,4 +1,7 @@
-use iroh::{endpoint::Connection, protocol::ProtocolHandler};
+use iroh::{
+    endpoint::Connection,
+    protocol::{AcceptError, ProtocolHandler},
+};
 use tokio::net::TcpStream;
 
 use crate::tunnel::copy_flush;
@@ -9,17 +12,17 @@ pub(crate) struct PigeonsProtocol {
 }
 
 impl PigeonsProtocol {
-    pub const ALPN: &[u8] = b"/pigeons/0";
+    pub(crate) const ALPN: &[u8] = b"/pigeons/0";
 
     /// create a new pigeons "home" that will forward incoming connections from
     /// a bound endpoint to the given local ssh server port
-    pub fn new(ssh_port: u16) -> Self {
+    pub(crate) fn new(ssh_port: u16) -> Self {
         Self { ssh_port }
     }
 }
 
 impl ProtocolHandler for PigeonsProtocol {
-    async fn accept(&self, connection: Connection) -> Result<(), iroh::protocol::AcceptError> {
+    async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
         let endpoint_id = connection.remote_id();
 
         match connection.accept_bi().await {

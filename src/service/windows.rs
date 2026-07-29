@@ -7,12 +7,14 @@ mod firewall;
 
 #[cfg(target_os = "windows")]
 use std::{
+    env,
     ffi::{OsStr, OsString, c_void},
     fs, io, iter, mem,
     os::windows::ffi::OsStrExt,
     path::{Path, PathBuf},
     ptr,
     sync::OnceLock,
+    thread,
     time::{Duration, Instant},
 };
 
@@ -48,7 +50,7 @@ use windows_sys::Win32::{
 
 #[cfg(target_os = "windows")]
 #[derive(Debug, Clone)]
-pub struct WindowsService;
+pub(crate) struct WindowsService;
 
 #[cfg(target_os = "windows")]
 static SERVICE_SSH_PORT: OnceLock<u16> = OnceLock::new();
@@ -59,7 +61,7 @@ static SERVICE_RELAY_URLS: OnceLock<Vec<String>> = OnceLock::new();
 #[cfg(target_os = "windows")]
 impl Service for WindowsService {
     async fn install(service_params: ServiceParams) -> anyhow::Result<()> {
-        task::spawn_blocking(move || WindowsService::install_blocking(service_params))
+        task::spawn_blocking(move || Self::install_blocking(service_params))
             .await
             .context("windows service install task panicked")??;
         Ok(())
@@ -70,14 +72,14 @@ impl Service for WindowsService {
     }
 
     async fn uninstall() -> anyhow::Result<()> {
-        task::spawn_blocking(WindowsService::uninstall_blocking)
+        task::spawn_blocking(Self::uninstall_blocking)
             .await
             .context("windows service uninstall task panicked")??;
         Ok(())
     }
 
     async fn restart() -> anyhow::Result<()> {
-        task::spawn_blocking(WindowsService::restart_blocking)
+        task::spawn_blocking(Self::restart_blocking)
             .await
             .context("windows service restart task panicked")??;
         Ok(())
@@ -86,8 +88,8 @@ impl Service for WindowsService {
 
 #[cfg(target_os = "windows")]
 impl WindowsService {
-    pub async fn run_service(service_params: ServiceParams) -> anyhow::Result<()> {
-        task::spawn_blocking(move || WindowsService::run_service_dispatcher(service_params))
+    pub(crate) async fn run_service(service_params: ServiceParams) -> anyhow::Result<()> {
+        task::spawn_blocking(move || Self::run_service_dispatcher(service_params))
             .await
             .context("windows service dispatcher task panicked")??;
         Ok(())
@@ -123,15 +125,15 @@ impl WindowsService {
         SERVICE_RELAY_URLS.get().cloned().unwrap_or_default()
     }
 
-    pub const SERVICE_NAME: &'static str = "pigeons";
-    pub const SERVICE_DISPLAY_NAME: &'static str = "pigeons";
-    pub const SERVICE_DESCRIPTION: &'static str = "carrier pigeons for your SSH connections";
-    pub const SERVICE_ACCOUNT: &'static str = "NT SERVICE\\pigeons";
-    pub const SERVICE_DEPENDENCY: &'static str = "sshd";
-    pub const INSTALL_ROOT: &'static str = r"C:\\ProgramData\\pigeons";
-    pub const SERVICE_BINARY_NAME: &'static str = "pigeons.exe";
-    pub const SERVICE_PROFILE_ROOT: &'static str = r"C:\\Windows\\ServiceProfiles\\pigeons";
-    pub const SERVICE_SSH_DIR: &'static str = r"C:\\Windows\\ServiceProfiles\\pigeons\\.ssh";
+    pub(crate) const SERVICE_NAME: &'static str = "pigeons";
+    pub(crate) const SERVICE_DISPLAY_NAME: &'static str = "pigeons";
+    pub(crate) const SERVICE_DESCRIPTION: &'static str = "carrier pigeons for your SSH connections";
+    pub(crate) const SERVICE_ACCOUNT: &'static str = "NT SERVICE\\pigeons";
+    pub(crate) const SERVICE_DEPENDENCY: &'static str = "sshd";
+    pub(crate) const INSTALL_ROOT: &'static str = r"C:\\ProgramData\\pigeons";
+    pub(crate) const SERVICE_BINARY_NAME: &'static str = "pigeons.exe";
+    pub(crate) const SERVICE_PROFILE_ROOT: &'static str = r"C:\\Windows\\ServiceProfiles\\pigeons";
+    pub(crate) const SERVICE_SSH_DIR: &'static str = r"C:\\Windows\\ServiceProfiles\\pigeons\\.ssh";
 
     fn install_blocking(service_params: ServiceParams) -> anyhow::Result<()> {
         let staged_binary = Self::stage_binary().context("failed to stage service binary")?;
@@ -218,7 +220,7 @@ impl WindowsService {
             if start.elapsed() >= timeout {
                 bail!("service did not stop within {}s", timeout.as_secs());
             }
-            std::thread::sleep(Duration::from_millis(500));
+            thread::sleep(Duration::from_millis(500));
         }
 
         Self::start_service(&service).context("failed to start service")?;
@@ -226,7 +228,7 @@ impl WindowsService {
     }
 
     fn stage_binary() -> anyhow::Result<PathBuf> {
-        let source = std::env::current_exe().context("could not determine current executable")?;
+        let source = env::current_exe().context("could not determine current executable")?;
         let target_dir = Path::new(Self::INSTALL_ROOT);
         Self::ensure_directory(target_dir).context("failed to create install root")?;
 
@@ -544,7 +546,7 @@ impl WindowsService {
         while start.elapsed() < timeout {
             match service_manager.open_service(Self::SERVICE_NAME, ServiceAccess::QUERY_STATUS) {
                 Ok(_) => {
-                    std::thread::sleep(Duration::from_secs(1));
+                    thread::sleep(Duration::from_secs(1));
                 }
                 Err(WinServiceError::Winapi(err))
                     if err.raw_os_error() == Some(ERROR_SERVICE_DOES_NOT_EXIST as i32) =>
@@ -561,11 +563,18 @@ impl WindowsService {
 
 #[cfg(target_os = "windows")]
 mod service_runtime {
-    use std::{ffi::OsString, io, sync::mpsc, time::Duration};
+    use std::{
+        ffi::OsString,
+        io,
+        path::{Path, PathBuf},
+        sync::mpsc,
+        time::Duration,
+    };
 
     use tokio::{fs, runtime::Builder};
+    use tracing_appender::rolling;
     use windows_service::{
-        Result as WinResult, define_windows_service,
+        Error as WinServiceError, Result as WinResult, define_windows_service,
         service::{
             ServiceControl, ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus,
             ServiceType,
@@ -586,8 +595,8 @@ mod service_runtime {
     define_windows_service!(ffi_service_main, service_main);
 
     fn service_main(_arguments: Vec<OsString>) {
-        let log_dir = std::path::PathBuf::from(WindowsService::SERVICE_PROFILE_ROOT);
-        let file_appender = tracing_appender::rolling::never(&log_dir, "pigeons-service.log");
+        let log_dir = PathBuf::from(WindowsService::SERVICE_PROFILE_ROOT);
+        let file_appender = rolling::never(&log_dir, "pigeons-service.log");
         let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
         tracing_subscriber::fmt()
@@ -647,7 +656,7 @@ mod service_runtime {
         let server_handle = runtime.spawn(async move {
             tracing::info!("spawning roost task");
 
-            let ssh_dir = std::path::PathBuf::from(WindowsService::SERVICE_SSH_DIR);
+            let ssh_dir = PathBuf::from(WindowsService::SERVICE_SSH_DIR);
             let mut builder = match Tunnel::builder_from_ssh_dir(ssh_dir).await {
                 Ok(b) => b,
                 Err(err) => {
@@ -668,7 +677,7 @@ mod service_runtime {
                     tracing::info!("roost is running, id={id}");
 
                     // Publish endpoint ID for `pigeons service status`
-                    let dir = std::path::Path::new(WindowsService::INSTALL_ROOT);
+                    let dir = Path::new(WindowsService::INSTALL_ROOT);
                     if let Err(err) = fs::create_dir_all(dir).await {
                         tracing::warn!("failed to create {}: {err}", dir.display());
                     }
@@ -710,7 +719,7 @@ mod service_runtime {
         Ok(())
     }
 
-    fn anyhow_to_win_error(error: anyhow::Error) -> windows_service::Error {
-        windows_service::Error::Winapi(io::Error::new(io::ErrorKind::Other, error.to_string()))
+    fn anyhow_to_win_error(error: anyhow::Error) -> WinServiceError {
+        WinServiceError::Winapi(io::Error::new(io::ErrorKind::Other, error.to_string()))
     }
 }

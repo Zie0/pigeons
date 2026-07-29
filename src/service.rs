@@ -1,3 +1,12 @@
+use std::{
+    env,
+    future::Future,
+    path::{Path, PathBuf},
+    process::Command,
+};
+
+use tokio::fs;
+
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "linux")]
@@ -11,9 +20,8 @@ use crate::service::macos::MacosService;
 // Much of the windows module is invoked by the Windows Service Control Manager
 // rather than our own code paths, so the compiler sees it as dead code.
 #[cfg(target_os = "windows")]
-#[allow(dead_code)]
+#[allow(dead_code, reason = "invoked by the Windows Service Control Manager")]
 mod windows;
-use tokio::fs;
 
 #[cfg(target_os = "windows")]
 pub(crate) use crate::service::windows::WindowsService;
@@ -22,7 +30,7 @@ pub(crate) use crate::service::windows::WindowsService;
 pub struct ServiceParams {
     pub ssh_port: u16,
     pub relay_url: Vec<String>,
-    pub binary_path: std::path::PathBuf,
+    pub binary_path: PathBuf,
 }
 
 /// Discover the absolute path of the currently-running pigeons binary and
@@ -30,8 +38,8 @@ pub struct ServiceParams {
 ///
 /// On Unix, the binary must be in a standard system path. On Windows, the
 /// service installer copies the binary itself, so any path is accepted.
-pub fn resolve_binary_path() -> anyhow::Result<std::path::PathBuf> {
-    let exe = std::env::current_exe()?;
+pub fn resolve_binary_path() -> anyhow::Result<PathBuf> {
+    let exe = env::current_exe()?;
     let resolved = exe.canonicalize()?;
 
     #[cfg(unix)]
@@ -66,21 +74,19 @@ pub fn resolve_binary_path() -> anyhow::Result<std::path::PathBuf> {
 }
 
 pub trait Service {
-    fn install(
-        service_params: ServiceParams,
-    ) -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
-    fn info() -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
-    fn uninstall() -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
-    fn restart() -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
+    fn install(service_params: ServiceParams) -> impl Future<Output = anyhow::Result<()>> + Send;
+    fn info() -> impl Future<Output = anyhow::Result<()>> + Send;
+    fn uninstall() -> impl Future<Output = anyhow::Result<()>> + Send;
+    fn restart() -> impl Future<Output = anyhow::Result<()>> + Send;
 }
 
 pub async fn install(service_params: ServiceParams) -> anyhow::Result<()> {
     tracing::info!(
         "installing service for os={}, ssh_port={}",
-        std::env::consts::OS,
+        env::consts::OS,
         service_params.ssh_port
     );
-    match std::env::consts::OS {
+    match env::consts::OS {
         #[cfg(target_os = "linux")]
         "linux" => LinuxService::install(service_params).await,
         #[cfg(target_os = "macos")]
@@ -92,7 +98,7 @@ pub async fn install(service_params: ServiceParams) -> anyhow::Result<()> {
 }
 
 pub async fn uninstall() -> anyhow::Result<()> {
-    match std::env::consts::OS {
+    match env::consts::OS {
         #[cfg(target_os = "linux")]
         "linux" => LinuxService::uninstall().await,
         #[cfg(target_os = "macos")]
@@ -104,7 +110,7 @@ pub async fn uninstall() -> anyhow::Result<()> {
 }
 
 pub async fn restart() -> anyhow::Result<()> {
-    match std::env::consts::OS {
+    match env::consts::OS {
         #[cfg(target_os = "linux")]
         "linux" => LinuxService::restart().await,
         #[cfg(target_os = "macos")]
@@ -120,7 +126,7 @@ pub async fn restart() -> anyhow::Result<()> {
 /// on startup when running as root (service mode).
 /// Returns Some(endpoint_id) if found, None otherwise.
 pub async fn service_endpoint_id() -> Option<iroh::EndpointId> {
-    let content = match std::env::consts::OS {
+    let content = match env::consts::OS {
         "linux" => "/etc/pigeons/endpoint_id",
         "macos" => "/etc/pigeons/endpoint_id",
         "windows" => "C:\\ProgramData\\pigeons\\endpoint_id",
@@ -137,22 +143,22 @@ pub async fn service_endpoint_id() -> Option<iroh::EndpointId> {
 
 /// Print service logs to stdout.
 pub fn service_log() -> anyhow::Result<()> {
-    match std::env::consts::OS {
+    match env::consts::OS {
         "macos" => {
-            let path = std::path::Path::new("/var/log/pigeons.log");
+            let path = Path::new("/var/log/pigeons.log");
             if !path.exists() {
                 anyhow::bail!(
                     "no log file found at /var/log/pigeons.log — is the service installed?"
                 );
             }
-            let status = std::process::Command::new("cat").arg(path).status()?;
+            let status = Command::new("cat").arg(path).status()?;
             if !status.success() {
                 anyhow::bail!("failed to read log file (try running with sudo)");
             }
             Ok(())
         }
         "linux" => {
-            let status = std::process::Command::new("journalctl")
+            let status = Command::new("journalctl")
                 .args(["-u", "pigeons.service", "--no-pager"])
                 .status()?;
             if !status.success() {

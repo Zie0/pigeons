@@ -1,4 +1,8 @@
-use std::{path::PathBuf, str::FromStr};
+use std::{
+    env, panic,
+    path::PathBuf,
+    str::{self, FromStr},
+};
 
 use anyhow::{Context, Result, anyhow};
 use iroh::{
@@ -8,8 +12,8 @@ use iroh::{
 };
 use iroh_services::ApiSecret;
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpListener,
+    io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
+    net::{TcpListener, TcpStream},
 };
 use tracing::warn;
 
@@ -50,7 +54,7 @@ pub struct TunnelBuilder {
 impl TunnelBuilder {
     fn new(secret_key: SecretKey, config: Config) -> Result<Self> {
         let isvc_api_secret = iroh_services_api_secret(&config)?;
-        Ok(TunnelBuilder {
+        Ok(Self {
             roost: None,
             secret_key,
             relay_urls: vec![],
@@ -97,7 +101,7 @@ impl TunnelBuilder {
             router = router.accept(PigeonsProtocol::ALPN, handler);
             tracing::info!(
                 "roost accepting connections on ALPN {:?}",
-                std::str::from_utf8(PigeonsProtocol::ALPN)
+                str::from_utf8(PigeonsProtocol::ALPN)
             );
         }
 
@@ -114,7 +118,7 @@ impl TunnelBuilder {
 #[derive(Debug, Clone)]
 pub struct Tunnel {
     router: Router,
-    #[allow(dead_code)]
+    #[allow(dead_code, reason = "held to keep the telemetry client alive")]
     isvc_client: Option<iroh_services::Client>,
 }
 
@@ -151,8 +155,8 @@ impl Tunnel {
         let (mut iroh_send, mut iroh_recv) = conn.open_bi().await?;
         tracing::debug!("fly_stdio: bridging stdin/stdout");
 
-        let mut stdin = tokio::io::stdin();
-        let mut stdout = tokio::io::stdout();
+        let mut stdin = io::stdin();
+        let mut stdout = io::stdout();
 
         let stdin_to_iroh = copy_flush(&mut stdin, &mut iroh_send);
         let iroh_to_stdout = copy_flush(&mut iroh_recv, &mut stdout);
@@ -180,7 +184,7 @@ impl Tunnel {
         match ret {
             Ok(result) => result,
             Err(e) => match e.try_into_panic() {
-                Ok(panic) => std::panic::resume_unwind(panic),
+                Ok(panic) => panic::resume_unwind(panic),
                 Err(e) => Err(e.into()),
             },
         }
@@ -217,7 +221,7 @@ async fn prepare_pigeon(
 
 /// takes a TCP stream & adds it
 async fn bridge_connection(
-    tcp_stream: tokio::net::TcpStream,
+    tcp_stream: TcpStream,
     endpoint: &Endpoint,
     remote_id: EndpointId,
 ) -> anyhow::Result<()> {
@@ -247,10 +251,10 @@ async fn bridge_connection(
 /// Unlike `tokio::io::copy` (which buffers 8KB before flushing),
 /// this ensures interactive data like SSH keystrokes are forwarded
 /// immediately.
-pub(crate) async fn copy_flush<R, W>(reader: &mut R, writer: &mut W) -> std::io::Result<u64>
+pub(crate) async fn copy_flush<R, W>(reader: &mut R, writer: &mut W) -> io::Result<u64>
 where
-    R: tokio::io::AsyncRead + Unpin,
-    W: tokio::io::AsyncWrite + Unpin,
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
 {
     let mut buf = [0u8; 8 * 1024];
     let mut total = 0u64;
@@ -270,7 +274,7 @@ fn iroh_services_api_secret(config: &Config) -> Result<Option<ApiSecret>> {
         return Ok(None);
     }
 
-    if let Ok(env_secret) = std::env::var(iroh_services::API_SECRET_ENV_VAR_NAME) {
+    if let Ok(env_secret) = env::var(iroh_services::API_SECRET_ENV_VAR_NAME) {
         match ApiSecret::from_str(&env_secret) {
             Ok(secret) => return Ok(Some(secret)),
             Err(_) => {
