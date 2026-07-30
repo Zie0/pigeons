@@ -3,7 +3,7 @@ use std::{path::Path, process::Command};
 #[cfg(target_os = "windows")]
 use anyhow::{Context, Result, bail};
 
-pub fn add_firewall_rules(executable_path: &Path) -> Result<()> {
+pub(super) fn add_firewall_rules(executable_path: &Path) -> Result<()> {
     let exe_path = executable_path
         .to_str()
         .ok_or_else(|| anyhow::anyhow!("executable path contains invalid UTF-8"))?;
@@ -62,7 +62,7 @@ Write-Host 'Added HTTPS rule'
     );
 
     let output = Command::new("powershell")
-        .args(&[
+        .args([
             "-NoProfile",
             "-ExecutionPolicy",
             "Bypass",
@@ -88,7 +88,7 @@ Write-Host 'Added HTTPS rule'
     Ok(())
 }
 
-pub fn remove_firewall_rules() -> Result<()> {
+pub(super) fn remove_firewall_rules() -> Result<()> {
     tracing::info!("Removing Windows Firewall rules for pigeons");
 
     let ps_script = r#"
@@ -105,7 +105,7 @@ Write-Host 'Removed HTTPS rule'
 "#;
 
     let output = Command::new("powershell")
-        .args(&[
+        .args([
             "-NoProfile",
             "-ExecutionPolicy",
             "Bypass",

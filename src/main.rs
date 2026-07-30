@@ -1,10 +1,25 @@
-use std::str::FromStr;
+use std::{io, path::Path, str::FromStr};
 
 use clap::{ArgAction, Args, Parser, Subcommand};
 use iroh::{EndpointId, RelayUrl};
-use pigeons::{Config, home_ssh_dir};
+use iroh_pigeons::{
+    Config, RoostConfig, ServiceParams, Tunnel, add_tunnel_host, home_ssh_dir, install_service,
+    list_tunnel_hosts, remove_tunnel_host, resolve_binary_path, restart_service,
+    service_endpoint_id, service_log, uninstall_service,
+};
+use tokio::{fs, signal};
 
 const RELAY_URL_HELP: &str = "use this relay server, replacing the defaults (repeatable)";
+
+/// Derive a route name from an endpoint ID for when `--name` is omitted.
+///
+/// Truncation counts characters rather than bytes: the ID is unvalidated user
+/// input at this point, and slicing it by byte index panics whenever the cut
+/// lands inside a multi-byte character.
+fn default_route_name(id: &str) -> String {
+    let prefix: String = id.chars().take(8).collect();
+    format!("pigeon-{prefix}")
+}
 
 #[derive(Parser, Debug)]
 #[command(
@@ -109,20 +124,20 @@ pub struct RemoveArgs {
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .with_writer(std::io::stderr)
+        .with_writer(io::stderr)
         .init();
 
     let cli = Cli::parse();
 
     match cli.cmd {
         Cmd::Roost(args) => {
-            let ssh_dir = pigeons::home_ssh_dir()?;
+            let ssh_dir = home_ssh_dir()?;
             let mut builder = if args.ephemeral {
-                pigeons::Tunnel::builder_ephemeral().await?
+                Tunnel::builder_ephemeral().await?
             } else {
-                pigeons::Tunnel::builder_from_ssh_dir(ssh_dir).await?
+                Tunnel::builder_from_ssh_dir(ssh_dir).await?
             };
-            builder.roost = Some(pigeons::RoostConfig {
+            builder.roost = Some(RoostConfig {
                 ssh_port: args.ssh_port,
             });
             for url in &args.relay_url {
@@ -140,28 +155,29 @@ async fn main() -> anyhow::Result<()> {
                     // If running as root (service mode), publish the endpoint ID
                     // so unprivileged users can read it via 'pigeons status'
                     if self_runas::is_elevated() {
-                        let dir = std::path::Path::new("/etc/pigeons");
-                        std::fs::create_dir_all(dir)?;
-                        std::fs::write(dir.join("endpoint_id"), id.to_string().as_bytes())?;
+                        let dir = Path::new("/etc/pigeons");
+                        fs::create_dir_all(dir).await?;
+                        fs::write(dir.join("endpoint_id"), id.to_string().as_bytes()).await?;
                         // world-readable
                         #[cfg(unix)]
                         {
-                            use std::os::unix::fs::PermissionsExt;
-                            std::fs::set_permissions(
+                            use std::{fs::Permissions, os::unix::fs::PermissionsExt};
+                            fs::set_permissions(
                                 dir.join("endpoint_id"),
-                                std::fs::Permissions::from_mode(0o644),
-                            )?;
+                                Permissions::from_mode(0o644),
+                            )
+                            .await?;
                         }
                     }
 
                     println!("roost is running! id: {}", id);
-                    tokio::signal::ctrl_c().await?;
+                    signal::ctrl_c().await?;
                     Ok(())
                 })
                 .await
         }
         Cmd::Fly(args) => {
-            let mut builder = pigeons::Tunnel::builder_ephemeral().await?;
+            let mut builder = Tunnel::builder_ephemeral().await?;
             for url in &args.relay_url {
                 builder.relay_urls.push(
                     RelayUrl::from_str(url)
@@ -184,7 +200,7 @@ async fn main() -> anyhow::Result<()> {
                                     eprintln!("error: {err}");
                                 };
                             }
-                            _ = tokio::signal::ctrl_c() => {
+                            _ = signal::ctrl_c() => {
                                 println!("shutting down...");
                             }
                         };
@@ -195,10 +211,7 @@ async fn main() -> anyhow::Result<()> {
                 .await
         }
         Cmd::Add(args) => {
-            let name = args.name.unwrap_or_else(|| {
-                let id = &args.id;
-                format!("pigeon-{}", &id[..8.min(id.len())])
-            });
+            let name = args.name.unwrap_or_else(|| default_route_name(&args.id));
             let name = name.trim();
             if name.is_empty() {
                 anyhow::bail!("host name cannot be empty");
@@ -215,14 +228,15 @@ async fn main() -> anyhow::Result<()> {
                 );
             }
             let endpoint_id = EndpointId::from_str(&args.id)?;
-            pigeons::add_tunnel_host(name, &endpoint_id)?;
+            add_tunnel_host(name, &endpoint_id).await?;
+
             println!("Pigeon route '{name}' added to ~/.ssh/config");
             println!();
             println!("  Fly with: ssh <user>@{name}");
             Ok(())
         }
         Cmd::List => {
-            let entries = pigeons::list_tunnel_hosts()?;
+            let entries = list_tunnel_hosts().await?;
             if entries.is_empty() {
                 println!("No pigeon routes configured.");
             } else {
@@ -235,7 +249,7 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Cmd::Remove(args) => {
-            pigeons::remove_tunnel_host(&args.name)?;
+            remove_tunnel_host(&args.name).await?;
             println!("Pigeon route '{}' removed.", args.name);
             Ok(())
         }
@@ -260,14 +274,14 @@ async fn main() -> anyhow::Result<()> {
                 } => {
                     // Resolve and validate the binary path *before* elevating,
                     // so the user sees any error in their own terminal.
-                    let binary_path = pigeons::resolve_binary_path()?;
+                    let binary_path = resolve_binary_path()?;
 
                     if !self_runas::is_elevated() {
                         self_runas::admin()?;
                         return Ok(());
                     }
 
-                    pigeons::install_service(pigeons::ServiceParams {
+                    install_service(ServiceParams {
                         ssh_port,
                         relay_url,
                         binary_path,
@@ -282,7 +296,7 @@ async fn main() -> anyhow::Result<()> {
                         return Ok(());
                     }
 
-                    pigeons::uninstall_service().await?;
+                    uninstall_service().await?;
                     println!("Pigeons service uninstalled.");
                     Ok(())
                 }
@@ -292,12 +306,12 @@ async fn main() -> anyhow::Result<()> {
                         return Ok(());
                     }
 
-                    pigeons::restart_service().await?;
+                    restart_service().await?;
                     println!("Pigeons service restarted.");
                     Ok(())
                 }
                 ServiceCmd::Status => {
-                    match pigeons::service_endpoint_id() {
+                    match service_endpoint_id().await {
                         Some(id) => {
                             println!("Service:       running");
                             println!();
@@ -313,10 +327,40 @@ async fn main() -> anyhow::Result<()> {
                     Ok(())
                 }
                 ServiceCmd::Log => {
-                    pigeons::service_log()?;
+                    service_log()?;
                     Ok(())
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_route_name_uses_id_prefix() {
+        assert_eq!(
+            default_route_name("bb8e1a5661a6dfa9ae2dd978922f30f5"),
+            "pigeon-bb8e1a56"
+        );
+    }
+
+    #[test]
+    fn default_route_name_handles_short_ids() {
+        assert_eq!(default_route_name("abc"), "pigeon-abc");
+        assert_eq!(default_route_name(""), "pigeon-");
+    }
+
+    /// Regression: the ID is not validated until after the name is derived, so
+    /// truncating it by byte index panicked on any multi-byte input.
+    #[test]
+    fn default_route_name_does_not_split_multibyte_characters() {
+        // 9 characters in, 8 characters out — and crucially, no panic.
+        assert_eq!(
+            default_route_name("日本語テストデータ"),
+            "pigeon-日本語テストデー"
+        );
     }
 }
