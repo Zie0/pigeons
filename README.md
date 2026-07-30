@@ -49,8 +49,7 @@ can and falling back to relay servers when it cannot.
 
 `pigeons add` writes a `Host` entry to your SSH config whose [`ProxyCommand`]
 runs `pigeons fly --stdio`, so `ssh` reaches the tunnel over that command's
-stdin and stdout. That is what lets you keep using `ssh` exactly as before —
-your keys, your config, your agent, all unchanged.
+stdin and stdout.
 
 ## Installation
 
