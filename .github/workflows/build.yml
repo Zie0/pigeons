@@ -220,26 +220,45 @@ jobs:
           fi
           set -e
 
-          if grep -qiE "(permission denied|password|publickey|authentication failed|Connection closed)" connect_output.txt; then
+          echo "ssh exit code: $EXIT_CODE"
+
+          # A crash in roost or in the `fly` proxy command tears the tunnel down,
+          # and ssh then reports the connection as closed by the remote host.
+          # That message used to count as a pass, so a panic that reproduced on
+          # every run still went green. Check for it before anything else.
+          if grep -qE 'panicked at|assertion failed' server_output.txt connect_output.txt; then
+            echo "FAILURE: pigeons panicked"
+            echo "--- roost output ---"
+            cat server_output.txt
+            echo "--- ssh output ---"
+            cat connect_output.txt
+            kill $SERVER_PID 2>/dev/null || true
+            exit 1
+          fi
+
+          if ! kill -0 $SERVER_PID 2>/dev/null; then
+            echo "FAILURE: roost exited during the connection attempt"
+            echo "--- roost output ---"
+            cat server_output.txt
+            exit 1
+          fi
+
+          # Being rejected at publickey/password means the tunnel carried the SSH
+          # handshake end to end. The runner has no authorized key, so that is as
+          # far as a healthy run gets.
+          if grep -qiE 'permission denied|publickey|authentication failed' connect_output.txt; then
             echo "SUCCESS: Connection reached SSH authentication stage"
             kill $SERVER_PID || true
             exit 0
-          elif grep -qiE "(connection refused|network|timeout|no route)" connect_output.txt; then
-            echo "FAILURE: Could not establish connection"
-            cat connect_output.txt
-            kill $SERVER_PID || true
-            exit 1
-          else
-            echo "Test completed - checking if connection was attempted"
-            cat connect_output.txt
-            if [ $EXIT_CODE -eq 255 ]; then
-              echo "SUCCESS: Connection reached SSH authentication stage (exit code 255)"
-              kill $SERVER_PID || true
-              exit 0
-            fi
-            kill $SERVER_PID || true
-            exit 1
           fi
+
+          echo "FAILURE: connection never reached SSH authentication"
+          echo "--- roost output ---"
+          cat server_output.txt
+          echo "--- ssh output ---"
+          cat connect_output.txt
+          kill $SERVER_PID || true
+          exit 1
 
       - name: Run integration test (Windows)
         if: runner.os == 'Windows'
@@ -280,28 +299,45 @@ jobs:
 
           Write-Host "Connect output:"
           Write-Host $ConnectOutput
+          Write-Host "ssh exit code: $ExitCode"
 
-          if ($ConnectOutput -match "(permission denied|password|publickey|authentication|Connection closed)") {
+          # Fold in whatever roost logged while the connection was attempted.
+          $AllServerOutput = ($ServerOutput | Out-String) + (Receive-Job -Job $ServerJob | Out-String)
+
+          # A crash in roost or in the `fly` proxy command tears the tunnel down,
+          # and ssh then reports the connection as closed by the remote host.
+          # That message used to count as a pass, so a panic that reproduced on
+          # every run still went green. Check for it before anything else.
+          if (($AllServerOutput -match 'panicked at|assertion failed') -or ($ConnectOutput -match 'panicked at|assertion failed')) {
+            Write-Host "FAILURE: pigeons panicked"
+            Write-Host "--- roost output ---"
+            Write-Host $AllServerOutput
+            Stop-Job -Job $ServerJob
+            Remove-Job -Job $ServerJob
+            exit 1
+          }
+
+          if ($ServerJob.State -ne 'Running') {
+            Write-Host "FAILURE: roost exited during the connection attempt (state: $($ServerJob.State))"
+            Write-Host "--- roost output ---"
+            Write-Host $AllServerOutput
+            Remove-Job -Job $ServerJob -Force
+            exit 1
+          }
+
+          # Being rejected at publickey/password means the tunnel carried the SSH
+          # handshake end to end. The runner has no authorized key, so that is as
+          # far as a healthy run gets.
+          if ($ConnectOutput -match 'permission denied|publickey|authentication failed') {
             Write-Host "SUCCESS: Connection reached SSH authentication stage"
             Stop-Job -Job $ServerJob
             Remove-Job -Job $ServerJob
             exit 0
           }
-          elseif ($ConnectOutput -match "(connection refused|network|timeout|no route)") {
-            Write-Host "FAILURE: Could not establish connection"
-            Stop-Job -Job $ServerJob
-            Remove-Job -Job $ServerJob
-            exit 1
-          }
-          elseif ($ExitCode -eq 255) {
-            Write-Host "SUCCESS: Connection reached SSH authentication stage (exit code 255)"
-            Stop-Job -Job $ServerJob
-            Remove-Job -Job $ServerJob
-            exit 0
-          }
-          else {
-            Write-Host "Test result unclear"
-            Stop-Job -Job $ServerJob
-            Remove-Job -Job $ServerJob
-            exit 1
-          }
+
+          Write-Host "FAILURE: connection never reached SSH authentication"
+          Write-Host "--- roost output ---"
+          Write-Host $AllServerOutput
+          Stop-Job -Job $ServerJob
+          Remove-Job -Job $ServerJob
+          exit 1
