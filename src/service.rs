@@ -51,6 +51,7 @@ pub fn resolve_binary_path() -> anyhow::Result<PathBuf> {
             "/opt/",
             "/usr/local/sbin",
             "/usr/sbin",
+            "/var/usrlocal/bin/",
         ];
 
         let path_str = resolved
